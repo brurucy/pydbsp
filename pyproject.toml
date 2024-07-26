@@ -1,0 +1,33 @@
+[tool.poetry]
+name = "pydbsp"
+version = "0.1.0"
+description = "A pure-python implementation of the database signal processing theory stream processing paradigm"
+authors = ["brurucy <brurucy@gmail.com>"]
+license = "MIT"
+readme = "README.md"
+packages = [{include = "pydbsp"}]
+
+[tool.poetry.dependencies]
+python = "^3.8"
+
+
+[tool.poetry.group.dev.dependencies]
+ruff = "^0.5.5"
+basedpyright = "^1.15.0"
+
+[tool.ruff]
+line-length = 120
+src = [ "pydbsp" ]
+
+[tool.ruff.format]
+docstring-code-format = true
+
+[tool.basedpyright]
+venvPath = "."
+include = [ "pydbsp" ]
+exclude = [ ".venv" ]
+typeCheckingMode = "strict"
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"
