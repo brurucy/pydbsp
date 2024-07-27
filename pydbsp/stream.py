@@ -51,7 +51,7 @@ class Stream(Generic[T]):
         if self_timestamp != other_timestamp:
             largest = max(self_timestamp, other_timestamp)
 
-            for timestamp in range(largest):
+            for timestamp in range(largest + 1):
                 self_val = self[timestamp]
                 other_val = other[timestamp] # type: ignore
 

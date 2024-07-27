@@ -1,5 +1,5 @@
 from stream import Stream, StreamHandle
-from .operator import Operator, UnaryOperator, BinaryOperator
+from stream_operator import Operator, UnaryOperator, BinaryOperator
 from algebra import AbelianGroupOperation
 from typing import Optional, TypeVar, Callable 
 

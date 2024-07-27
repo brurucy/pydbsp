@@ -3,7 +3,7 @@ from zset import Cmp, Projection, ZSet, join, JoinCmp, PostJoinProjection, proje
 from typing import TypeVar, Optional 
 from stream_operators import Lifted1, Lifted2, step_n_times_and_return, Integrate, LiftedIntegrate, Delay, LiftedDelay, LiftedGroupAdd
 from stream import StreamHandle, Stream
-from .operator import BinaryOperator 
+from stream_operator import BinaryOperator 
 
 T = TypeVar("T")
 

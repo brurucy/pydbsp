@@ -8,12 +8,13 @@ readme = "README.md"
 packages = [{include = "pydbsp"}]
 
 [tool.poetry.dependencies]
-python = "^3.8"
+python = "^3.12"
 
 
 [tool.poetry.group.dev.dependencies]
 ruff = "^0.5.5"
 basedpyright = "^1.15.0"
+pytest = "^8.3.2"
 
 [tool.ruff]
 line-length = 120
