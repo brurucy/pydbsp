@@ -1,9 +1,9 @@
 from algebra import AbelianGroupOperation
-from zset import Cmp, Projection, ZSet, join, JoinCmp, PostJoinProjection, project, select
+from zset import Cmp, Projection, ZSet, join, JoinCmp, PostJoinProjection, project, select, H
 from typing import TypeVar, Optional 
-from stream_operators import Lifted1, Lifted2, step_n_times_and_return, Integrate, LiftedIntegrate, Delay, LiftedDelay, LiftedGroupAdd
+from stream_operators import Lifted1, Lifted2, step_n_times_and_return, Integrate, LiftedIntegrate, Delay, LiftedDelay, LiftedGroupAdd, Differentiate
 from stream import StreamHandle, Stream
-from stream_operator import BinaryOperator 
+from stream_operator import BinaryOperator, UnaryOperator 
 
 T = TypeVar("T")
 
@@ -170,7 +170,7 @@ class LiftedLiftedDeltaJoin(BinaryOperator[Stream[ZSet[T]], Stream[ZSet[R]], Str
             self.lift_integrated_stream_b.output_handle()
         )
 
-        self.join_1 = LiftedLiftedJoin[T, R, S](
+        self.join_1 = LiftedLiftedJoin(
             self.delayed_integrated_stream_a.output_handle(),
             self.lift_delayed_lift_integrated_stream_b.output_handle(),
             self.p,
@@ -204,7 +204,6 @@ class LiftedLiftedDeltaJoin(BinaryOperator[Stream[ZSet[T]], Stream[ZSet[R]], Str
         self.sum_three = LiftedGroupAdd(
             self.sum_two.output_handle(), self.join_4.output_handle()
         )
-
         self.set_output_stream(self.sum_three.output_handle())
 
     def __init__(
@@ -246,3 +245,70 @@ class LiftedLiftedDeltaJoin(BinaryOperator[Stream[ZSet[T]], Stream[ZSet[R]], Str
         self.sum_three.step()
 
         return True
+
+class LiftedH(Lifted2[ZSet[T], ZSet[T], ZSet[T]]):
+    def __init__(
+        self,
+        diff_stream_a: StreamHandle[ZSet[T]],
+        integrated_stream_a: StreamHandle[ZSet[T]],
+    ):
+        super().__init__(diff_stream_a, integrated_stream_a, H, None)
+
+class LiftedLiftedH(
+    Lifted2[
+        Stream[ZSet[T]],
+        Stream[ZSet[T]],
+        Stream[ZSet[T]] 
+    ]
+):
+    def __init__(
+        self,
+        integrated_diff_stream_a: StreamHandle[Stream[ZSet[T]]],
+        lifted_delayed_lifted_integrated_stream_a: StreamHandle[Stream[ZSet[T]]],
+    ):
+        super().__init__(
+            integrated_diff_stream_a,
+            lifted_delayed_lifted_integrated_stream_a,
+            lambda x, y: step_n_times_and_return(
+                LiftedH(StreamHandle(lambda: x), StreamHandle(lambda: y)),
+                max(x.current_time(), y.current_time()) + 1,
+            ),
+            None,
+        )
+
+class DeltaLiftedDeltaLiftedDistinct(UnaryOperator[Stream[ZSet[T]], Stream[ZSet[T]]]):
+    integrated_diff_stream_a: Integrate[Stream[ZSet[T]]]
+    lift_integrated_diff_stream_a: LiftedIntegrate[ZSet[T]]
+    lift_delay_lift_integrated_diff_stream_a: LiftedDelay[ZSet[T]]
+    lift_lift_H: LiftedLiftedH[T]
+    diff_lift_lift_H: Differentiate[Stream[ZSet[T]]]
+
+    def set_input(
+        self,
+        stream_handle: StreamHandle[Stream[ZSet[T]]],
+        output_stream_group: Optional[AbelianGroupOperation[Stream[ZSet[T]]]],
+    ) -> None:
+        self._input_stream_a = stream_handle
+        self.integrated_diff_stream_a = Integrate(self._input_stream_a)
+        self.lift_integrated_diff_stream_a = LiftedIntegrate(
+            self.integrated_diff_stream_a.output_handle()
+        )
+        self.lift_delay_lift_integrated_diff_stream_a = LiftedDelay(
+            self.lift_integrated_diff_stream_a.output_handle()
+        )
+        self.lift_lift_H = LiftedLiftedH(
+            self.integrated_diff_stream_a.output_handle(),
+            self.lift_delay_lift_integrated_diff_stream_a.output_handle(),
+        )
+        self.diff_lift_lift_H = Differentiate(self.lift_lift_H.output_handle())
+        self.output_stream_handle = self.diff_lift_lift_H.output_handle()
+
+    def __init__(self, diff_stream_a: Optional[StreamHandle[Stream[ZSet[T]]]]):
+        super().__init__(diff_stream_a, None)
+
+    def step(self) -> bool:
+        self.integrated_diff_stream_a.step()
+        self.lift_integrated_diff_stream_a.step()
+        self.lift_delay_lift_integrated_diff_stream_a.step()
+        self.lift_lift_H.step()
+        return self.diff_lift_lift_H.step()
