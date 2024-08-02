@@ -1,7 +1,7 @@
 from algebra import AbelianGroupOperation
 from zset import Cmp, Projection, ZSet, join, JoinCmp, PostJoinProjection, project, select, H
 from typing import TypeVar, Optional 
-from stream_operators import Lifted1, Lifted2, step_n_times_and_return, Integrate, LiftedIntegrate, Delay, LiftedDelay, LiftedGroupAdd, Differentiate
+from stream_operators import Lifted1, Lifted2, StreamAddition, step_n_times_and_return, Integrate, LiftedIntegrate, Delay, LiftedDelay, LiftedGroupAdd, Differentiate
 from stream import StreamHandle, Stream
 from stream_operator import BinaryOperator, UnaryOperator 
 
@@ -138,7 +138,7 @@ class LiftedLiftedDeltaJoin(BinaryOperator[Stream[ZSet[T]], Stream[ZSet[R]], Str
     sum_two: LiftedGroupAdd[Stream[ZSet[S]]]
     sum_three: LiftedGroupAdd[Stream[ZSet[S]]]
 
-    output_stream: Stream[ZSet[S]]
+    output_stream: Stream[Stream[ZSet[S]]]
 
     def set_input_a(self, stream_handle_a: StreamHandle[Stream[ZSet[T]]]) -> None:
         self.input_stream_handle_a = stream_handle_a
@@ -204,7 +204,6 @@ class LiftedLiftedDeltaJoin(BinaryOperator[Stream[ZSet[T]], Stream[ZSet[R]], Str
         self.sum_three = LiftedGroupAdd(
             self.sum_two.output_handle(), self.join_4.output_handle()
         )
-        self.set_output_stream(self.sum_three.output_handle())
 
     def __init__(
         self,
@@ -215,12 +214,17 @@ class LiftedLiftedDeltaJoin(BinaryOperator[Stream[ZSet[T]], Stream[ZSet[R]], Str
     ):
         self.p = p
         self.f = f
+        self.output_stream = Stream(StreamAddition(ZSetAddition()))
+        self.output_stream_handle = StreamHandle(lambda: self.output_stream)
 
         if diff_stream_a is not None:
             self.set_input_a(diff_stream_a)
 
         if diff_stream_b is not None:
             self.set_input_b(diff_stream_b)
+
+    def output(self) -> Stream[Stream[ZSet[S]]]:
+        return self.output_stream
 
     def step(self) -> bool:
         self.integrated_stream_a.step()
@@ -243,6 +247,8 @@ class LiftedLiftedDeltaJoin(BinaryOperator[Stream[ZSet[T]], Stream[ZSet[R]], Str
         self.sum_one.step()
         self.sum_two.step()
         self.sum_three.step()
+
+        self.output_stream.send(self.sum_three.output().latest())
 
         return True
 

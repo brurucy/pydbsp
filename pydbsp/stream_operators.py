@@ -16,10 +16,19 @@ class Delay(UnaryOperator[T, T]):
 
         delayed_value = self.input_a()[output_timestamp]
 
+        group = self.input_a().group()
+        identity = group.identity()
+
         self.output().send(delayed_value)
+        if delayed_value == identity and output_timestamp != -1: 
+            previous_flag = self.flag
+            self.flag = True
+            if previous_flag:
+                return True
+        else:
+            self.flag = False
 
-        return True
-
+        return False
 
 F1 = Callable[[T], R]
 
@@ -120,10 +129,11 @@ class Integrate(UnaryOperator[T, T]):
 
     def step(self) -> bool:
         self.delayed_stream.step()
+        
         return self.integration_stream.step()
 
 
-def step_n_times[T](operator: Operator[T], n: int):
+def step_n_times[T](operator: Operator[T], n: int) -> None:
     for _ in range(n):
         operator.step()
 
@@ -137,7 +147,8 @@ class LiftedDelay(Lifted1[Stream[T], Stream[T]]):
         super().__init__(
             stream,
             lambda s: step_n_times_and_return(
-                Delay(StreamHandle(lambda: s)), s.current_time() + 1
+                Delay(StreamHandle(lambda: s)),
+                s.current_time() + 2
             ),
             None,
         )
@@ -182,6 +193,9 @@ class StreamAddition(AbelianGroupOperation[Stream[T]]):
 
         return lifted_group_add.output()
 
+    def inner_group(self) -> AbelianGroupOperation[T]:
+        return self.group
+    
     def neg(self, a: Stream[T]) -> Stream[T]:
         handle_a = StreamHandle(lambda: a)
         lifted_group_neg = LiftedGroupNegate(handle_a)
@@ -221,5 +235,5 @@ class LiftedStreamIntroduction(Lifted1[T, Stream[T]]):
 
 class LiftedStreamElimination(Lifted1[Stream[T], T]):
     def __init__(self, stream: StreamHandle[Stream[T]]) -> None:
-        super().__init__(stream, lambda x: stream_elimination(x), None)
+        super().__init__(stream, lambda x: stream_elimination(x), stream.get().group().inner_group()) # type: ignore
 

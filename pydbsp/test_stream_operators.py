@@ -17,14 +17,13 @@ def test_delay() -> None:
 
     operator.set_input(StreamHandle(lambda: s), None)
         
-    delayed_s = step_n_times_and_return(operator, s.current_time() + 1)
+    delayed_s = step_n_times_and_return(operator, s.current_time() + 2) 
 
     delayed_list = deque(s.inner)
     delayed_list.appendleft(s.group().identity())
-    delayed_list.pop()
     
     assert delayed_s.inner == list(delayed_list)
-    assert delayed_s.current_time() == s.current_time()
+    assert delayed_s.current_time() == s.current_time() + 1
     
 
 def test_lifted_group_negate() -> None:
@@ -99,11 +98,11 @@ def test_delay_stream_of_streams() -> None:
     s_handle = StreamHandle(lambda: s)
     operator: Delay[Stream[int]] = Delay(s_handle)
         
-    delayed_s = step_n_times_and_return(operator, s.current_time() + 1)
-    delayed_list = [ [ ], [ 0, 1, 2, 3 ], [ 2, 3, 4, 5 ], [ 4, 5, 6, 7 ] ]
+    delayed_s = step_n_times_and_return(operator, s.current_time() + 2)
+    delayed_list = [ [ ], [ 0, 1, 2, 3 ], [ 2, 3, 4, 5 ], [ 4, 5, 6, 7 ], [ 6, 7, 8, 9 ] ]
     
     assert from_stream_of_streams_into_list_of_lists(delayed_s) == delayed_list
-    assert delayed_s.current_time() == s.current_time()
+    assert delayed_s.current_time() == s.current_time() + 1
 
 
 def test_lifted_delay() -> None:
@@ -113,7 +112,7 @@ def test_lifted_delay() -> None:
     operator: LiftedDelay[int] = LiftedDelay(s_handle)
         
     delayed_s = step_n_times_and_return(operator, s.current_time() + 1)
-    delayed_list = [ [ 0, 0, 1, 2 ], [ 0, 2, 3, 4 ], [ 0, 4, 5, 6 ], [ 0, 6, 7, 8 ] ]
+    delayed_list = [ [ 0, 0, 1, 2, 3 ], [ 0, 2, 3, 4, 5 ], [ 0, 4, 5, 6, 7 ], [ 0, 6, 7, 8, 9 ] ]
     
     assert from_stream_of_streams_into_list_of_lists(delayed_s) == delayed_list
     assert delayed_s.current_time() == s.current_time()

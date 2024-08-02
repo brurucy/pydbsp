@@ -18,12 +18,14 @@ class Operator(Protocol[T]):
 class UnaryOperator(Operator[R], Protocol[T, R]):
     input_stream_handle: StreamHandle[T]
     output_stream_handle: StreamHandle[R]
+    flag: bool
 
     def __init__(
         self,
         stream_handle: Optional[StreamHandle[T]],
         output_stream_group: Optional[AbelianGroupOperation[R]],
     ) -> None:
+        self.flag = True
         if stream_handle is not None:
             self.set_input(stream_handle, output_stream_group)
 
