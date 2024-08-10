@@ -1,7 +1,8 @@
 from algebra import AbelianGroupOperation
 
+
 class IntegerAddition(AbelianGroupOperation[int]):
-    def add(self, a:int, b: int) -> int:
+    def add(self, a: int, b: int) -> int:
         return a + b
 
     def neg(self, a: int) -> int:
@@ -9,7 +10,8 @@ class IntegerAddition(AbelianGroupOperation[int]):
 
     def identity(self) -> int:
         return 0
-    
+
+
 def test_abelian_group_operation() -> None:
     group = IntegerAddition()
     a = 5

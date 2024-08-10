@@ -1,14 +1,27 @@
+from typing import Generic, Optional, TypeVar
+
 from algebra import AbelianGroupOperation
-from zset import Cmp, Projection, ZSet, join, JoinCmp, PostJoinProjection, project, select, H
-from typing import TypeVar, Optional 
-from stream_operators import Lifted1, Lifted2, StreamAddition, step_n_times_and_return, Integrate, LiftedIntegrate, Delay, LiftedDelay, LiftedGroupAdd, Differentiate
-from stream import StreamHandle, Stream
-from stream_operator import BinaryOperator, UnaryOperator 
+from stream import Stream, StreamHandle
+from stream_operator import BinaryOperator, UnaryOperator
+from stream_operators import (
+    Delay,
+    Differentiate,
+    Integrate,
+    Lifted1,
+    Lifted2,
+    LiftedDelay,
+    LiftedGroupAdd,
+    LiftedIntegrate,
+    StreamAddition,
+    step_n_times_and_return,
+    step_until_timestamp_and_return,
+)
+from zset import Cmp, H, JoinCmp, PostJoinProjection, Projection, ZSet, join, project, select
 
 T = TypeVar("T")
 
 
-class ZSetAddition(AbelianGroupOperation[ZSet[T]]):
+class ZSetAddition(Generic[T], AbelianGroupOperation[ZSet[T]]):
     def add(self, a: ZSet[T], b: ZSet[T]) -> ZSet[T]:
         c = {k: v for k, v in a.inner.items() if v != 0}
         for k, v in b.inner.items():
@@ -29,55 +42,40 @@ class ZSetAddition(AbelianGroupOperation[ZSet[T]]):
     def identity(self) -> ZSet[T]:
         return ZSet({})
 
+
 class LiftedSelect(Lifted1[ZSet[T], ZSet[T]]):
-     def __init__(
-        self,
-        stream: Optional[StreamHandle[ZSet[T]]],
-        p: Cmp[T]
-    ):
+    def __init__(self, stream: Optional[StreamHandle[ZSet[T]]], p: Cmp[T]):
         super().__init__(stream, lambda z: select(z, p), None)
 
+
 class LiftedLiftedSelect(Lifted1[Stream[ZSet[T]], Stream[ZSet[T]]]):
-    def __init__(
-        self,
-        stream: Optional[StreamHandle[Stream[ZSet[T]]]],
-        p: Cmp[T]
-    ):
+    def __init__(self, stream: Optional[StreamHandle[Stream[ZSet[T]]]], p: Cmp[T]):
         super().__init__(
             stream,
-            lambda x: step_n_times_and_return(
-                LiftedSelect(StreamHandle(lambda: x), p),
-                x.current_time() + 1
-            ),
-            None
+            lambda x: step_n_times_and_return(LiftedSelect(StreamHandle(lambda: x), p), x.current_time() + 1),
+            None,
         )
+
 
 R = TypeVar("R")
 
+
 class LiftedProject(Lifted1[ZSet[T], ZSet[R]]):
-      def __init__(
-        self,
-        stream: Optional[StreamHandle[ZSet[T]]],
-        f: Projection[T, R]
-    ):
+    def __init__(self, stream: Optional[StreamHandle[ZSet[T]]], f: Projection[T, R]):
         super().__init__(stream, lambda z: project(z, f), None)
 
+
 class LiftedLiftedProject(Lifted1[Stream[ZSet[T]], Stream[ZSet[R]]]):
-    def __init__(
-        self,
-        stream: Optional[StreamHandle[Stream[ZSet[T]]]],
-        f: Projection[T, R]
-    ):
+    def __init__(self, stream: Optional[StreamHandle[Stream[ZSet[T]]]], f: Projection[T, R]):
         super().__init__(
             stream,
-            lambda x: step_n_times_and_return(
-                LiftedProject(StreamHandle(lambda: x), f),
-                x.current_time() + 1
-            ),
-            None
+            lambda x: step_n_times_and_return(LiftedProject(StreamHandle(lambda: x), f), x.current_time() + 1),
+            None,
         )
 
+
 S = TypeVar("S")
+
 
 class LiftedJoin(Lifted2[ZSet[T], ZSet[R], ZSet[S]]):
     def __init__(
@@ -89,11 +87,12 @@ class LiftedJoin(Lifted2[ZSet[T], ZSet[R], ZSet[S]]):
     ):
         super().__init__(stream_a, stream_b, lambda x, y: join(x, y, p, f), None)
 
+
 class LiftedLiftedJoin(
     Lifted2[
         Stream[ZSet[T]],
         Stream[ZSet[R]],
-        Stream[ZSet[S]], 
+        Stream[ZSet[S]],
     ]
 ):
     def __init__(
@@ -106,12 +105,13 @@ class LiftedLiftedJoin(
         super().__init__(
             stream_a,
             stream_b,
-            lambda x, y: step_n_times_and_return(
+            lambda x, y: step_until_timestamp_and_return(
                 LiftedJoin(StreamHandle(lambda: x), StreamHandle(lambda: y), p, f),
-                max(x.current_time(), y.current_time()) + 1,
+                max(x.current_time(), y.current_time()),
             ),
             None,
         )
+
 
 class LiftedLiftedDeltaJoin(BinaryOperator[Stream[ZSet[T]], Stream[ZSet[R]], Stream[ZSet[S]]]):
     p: JoinCmp[T, R]
@@ -143,32 +143,22 @@ class LiftedLiftedDeltaJoin(BinaryOperator[Stream[ZSet[T]], Stream[ZSet[R]], Str
     def set_input_a(self, stream_handle_a: StreamHandle[Stream[ZSet[T]]]) -> None:
         self.input_stream_handle_a = stream_handle_a
         self.integrated_stream_a = Integrate(self.input_stream_handle_a)
-        self.delayed_integrated_stream_a = Delay(
-            self.integrated_stream_a.output_handle()
-        )
+        self.delayed_integrated_stream_a = Delay(self.integrated_stream_a.output_handle())
 
         self.lift_integrated_stream_a = LiftedIntegrate(self.input_stream_handle_a)
-        self.integrated_lift_integrated_stream_a = Integrate(
-            self.lift_integrated_stream_a.output_handle()
-        )
+        self.integrated_lift_integrated_stream_a = Integrate(self.lift_integrated_stream_a.output_handle())
 
     def set_input_b(self, stream_handle_b: StreamHandle[Stream[ZSet[R]]]) -> None:
         self.input_stream_handle_b = stream_handle_b
         self.integrated_stream_b = Integrate(self.input_stream_handle_b)
-        self.delayed_integrated_stream_b = Delay(
-            self.integrated_stream_b.output_handle()
-        )
+        self.delayed_integrated_stream_b = Delay(self.integrated_stream_b.output_handle())
 
         self.lift_integrated_stream_b = LiftedIntegrate(self.input_stream_handle_b)
-        self.integrated_lift_integrated_stream_b = Integrate(
-            self.lift_integrated_stream_b.output_handle()
-        )
+        self.integrated_lift_integrated_stream_b = Integrate(self.lift_integrated_stream_b.output_handle())
         self.lift_delayed_integrated_lift_integrated_stream_b = LiftedDelay(
             self.integrated_lift_integrated_stream_b.output_handle()
         )
-        self.lift_delayed_lift_integrated_stream_b = LiftedDelay(
-            self.lift_integrated_stream_b.output_handle()
-        )
+        self.lift_delayed_lift_integrated_stream_b = LiftedDelay(self.lift_integrated_stream_b.output_handle())
 
         self.join_1 = LiftedLiftedJoin(
             self.delayed_integrated_stream_a.output_handle(),
@@ -195,15 +185,9 @@ class LiftedLiftedDeltaJoin(BinaryOperator[Stream[ZSet[T]], Stream[ZSet[R]], Str
             self.f,
         )
 
-        self.sum_one = LiftedGroupAdd(
-            self.join_1.output_handle(), self.join_2.output_handle()
-        )
-        self.sum_two = LiftedGroupAdd(
-            self.sum_one.output_handle(), self.join_3.output_handle()
-        )
-        self.sum_three = LiftedGroupAdd(
-            self.sum_two.output_handle(), self.join_4.output_handle()
-        )
+        self.sum_one = LiftedGroupAdd(self.join_1.output_handle(), self.join_2.output_handle())
+        self.sum_two = LiftedGroupAdd(self.sum_one.output_handle(), self.join_3.output_handle())
+        self.sum_three = LiftedGroupAdd(self.sum_two.output_handle(), self.join_4.output_handle())
 
     def __init__(
         self,
@@ -214,7 +198,10 @@ class LiftedLiftedDeltaJoin(BinaryOperator[Stream[ZSet[T]], Stream[ZSet[R]], Str
     ):
         self.p = p
         self.f = f
-        self.output_stream = Stream(StreamAddition(ZSetAddition()))
+        inner_group: ZSetAddition[S] = ZSetAddition()
+        group: StreamAddition[ZSet[S]] = StreamAddition(inner_group)
+
+        self.output_stream = Stream(group)
         self.output_stream_handle = StreamHandle(lambda: self.output_stream)
 
         if diff_stream_a is not None:
@@ -252,6 +239,7 @@ class LiftedLiftedDeltaJoin(BinaryOperator[Stream[ZSet[T]], Stream[ZSet[R]], Str
 
         return True
 
+
 class LiftedH(Lifted2[ZSet[T], ZSet[T], ZSet[T]]):
     def __init__(
         self,
@@ -260,13 +248,8 @@ class LiftedH(Lifted2[ZSet[T], ZSet[T], ZSet[T]]):
     ):
         super().__init__(diff_stream_a, integrated_stream_a, H, None)
 
-class LiftedLiftedH(
-    Lifted2[
-        Stream[ZSet[T]],
-        Stream[ZSet[T]],
-        Stream[ZSet[T]] 
-    ]
-):
+
+class LiftedLiftedH(Lifted2[Stream[ZSet[T]], Stream[ZSet[T]], Stream[ZSet[T]]]):
     def __init__(
         self,
         integrated_diff_stream_a: StreamHandle[Stream[ZSet[T]]],
@@ -275,12 +258,13 @@ class LiftedLiftedH(
         super().__init__(
             integrated_diff_stream_a,
             lifted_delayed_lifted_integrated_stream_a,
-            lambda x, y: step_n_times_and_return(
+            lambda x, y: step_until_timestamp_and_return(
                 LiftedH(StreamHandle(lambda: x), StreamHandle(lambda: y)),
-                max(x.current_time(), y.current_time()) + 1,
+                min(x.current_time(), y.current_time()),
             ),
             None,
         )
+
 
 class DeltaLiftedDeltaLiftedDistinct(UnaryOperator[Stream[ZSet[T]], Stream[ZSet[T]]]):
     integrated_diff_stream_a: Integrate[Stream[ZSet[T]]]
@@ -296,12 +280,8 @@ class DeltaLiftedDeltaLiftedDistinct(UnaryOperator[Stream[ZSet[T]], Stream[ZSet[
     ) -> None:
         self._input_stream_a = stream_handle
         self.integrated_diff_stream_a = Integrate(self._input_stream_a)
-        self.lift_integrated_diff_stream_a = LiftedIntegrate(
-            self.integrated_diff_stream_a.output_handle()
-        )
-        self.lift_delay_lift_integrated_diff_stream_a = LiftedDelay(
-            self.lift_integrated_diff_stream_a.output_handle()
-        )
+        self.lift_integrated_diff_stream_a = LiftedIntegrate(self.integrated_diff_stream_a.output_handle())
+        self.lift_delay_lift_integrated_diff_stream_a = LiftedDelay(self.lift_integrated_diff_stream_a.output_handle())
         self.lift_lift_H = LiftedLiftedH(
             self.integrated_diff_stream_a.output_handle(),
             self.lift_delay_lift_integrated_diff_stream_a.output_handle(),
@@ -317,4 +297,5 @@ class DeltaLiftedDeltaLiftedDistinct(UnaryOperator[Stream[ZSet[T]], Stream[ZSet[
         self.lift_integrated_diff_stream_a.step()
         self.lift_delay_lift_integrated_diff_stream_a.step()
         self.lift_lift_H.step()
+
         return self.diff_lift_lift_H.step()

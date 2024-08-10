@@ -1,8 +1,9 @@
 from types import NotImplementedType
-from typing import TypeVar, Generic, List, Iterator, Callable, cast 
-from algebra import AbelianGroupOperation 
+from typing import TypeVar, Generic, List, Iterator, Callable, cast
+from algebra import AbelianGroupOperation
 
 T = TypeVar("T")
+
 
 class Stream(Generic[T]):
     timestamp: int
@@ -43,8 +44,8 @@ class Stream(Generic[T]):
         if not isinstance(other, Stream):
             return NotImplemented
 
-        cast(Stream[T], other) 
-        
+        cast(Stream[T], other)
+
         self_timestamp = self.current_time()
         other_timestamp = other.current_time()
 
@@ -53,14 +54,14 @@ class Stream(Generic[T]):
 
             for timestamp in range(largest + 1):
                 self_val = self[timestamp]
-                other_val = other[timestamp] # type: ignore
+                other_val = other[timestamp]  # type: ignore
 
                 if self_val != other_val:
                     return False
 
             return True
 
-        return self.inner == other.inner # type: ignore
+        return self.inner == other.inner  # type: ignore
 
 
 StreamReference = Callable[[], Stream[T]]
@@ -74,4 +75,3 @@ class StreamHandle(Generic[T]):
 
     def get(self) -> Stream[T]:
         return self.ref()
-

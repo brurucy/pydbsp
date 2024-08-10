@@ -1,10 +1,11 @@
-from typing import Protocol, TypeVar, Optional, cast 
+from typing import Protocol, TypeVar, Optional, cast
 from abc import abstractmethod
 from stream import StreamHandle, Stream
 from algebra import AbelianGroupOperation
 
 T = TypeVar("T")
 R = TypeVar("R")
+
 
 class Operator(Protocol[T]):
     @abstractmethod
@@ -14,6 +15,7 @@ class Operator(Protocol[T]):
     @abstractmethod
     def output_handle(self) -> StreamHandle[T]:
         raise NotImplementedError
+
 
 class UnaryOperator(Operator[R], Protocol[T, R]):
     input_stream_handle: StreamHandle[T]
@@ -55,8 +57,10 @@ class UnaryOperator(Operator[R], Protocol[T, R]):
 
         return handle
 
+
 S = TypeVar("S")
-    
+
+
 class BinaryOperator(Operator[S], Protocol[T, R, S]):
     input_stream_handle_a: StreamHandle[T]
     input_stream_handle_b: StreamHandle[R]

@@ -9,11 +9,12 @@ packages = [{include = "pydbsp"}]
 
 [tool.poetry.dependencies]
 python = "^3.12"
+pyright = "^1.1.375"
+debugpy = "^1.8.5"
 
 
 [tool.poetry.group.dev.dependencies]
 ruff = "^0.5.5"
-basedpyright = "^1.15.0"
 pytest = "^8.3.2"
 
 [tool.ruff]
@@ -23,7 +24,7 @@ src = [ "pydbsp" ]
 [tool.ruff.format]
 docstring-code-format = true
 
-[tool.basedpyright]
+[tool.pyright]
 venvPath = "."
 include = [ "pydbsp" ]
 exclude = [ ".venv" ]

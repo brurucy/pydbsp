@@ -2,6 +2,7 @@ from typing import Dict, Generic, Iterable, Tuple, TypeVar, Callable
 
 T = TypeVar("T")
 
+
 class ZSet(Generic[T]):
     inner: Dict[T, int]
 
@@ -18,11 +19,10 @@ class ZSet(Generic[T]):
         if not isinstance(other, ZSet):
             return False
 
-        return self.inner == other.inner # type: ignore
-    
+        return self.inner == other.inner  # type: ignore
+
     def __contains__(self, item: T) -> bool:
         return self.inner.__contains__(item)
-
 
     def __getitem__(self, item: T) -> int:
         if item not in self:
@@ -30,28 +30,34 @@ class ZSet(Generic[T]):
 
         return self.inner[item]
 
+
 Cmp = Callable[[T], bool]
 
+
 def select[T](zset: ZSet[T], p: Cmp[T]) -> ZSet[T]:
-    return ZSet( { k: v for k, v in zset.items() if p(k) })
+    return ZSet({k: v for k, v in zset.items() if p(k)})
+
 
 R = TypeVar("R")
 Projection = Callable[[T], R]
 
+
 def project[T, R](zset: ZSet[T], f: Projection[T, R]) -> ZSet[R]:
-    output: Dict[R, int] = { }
+    output: Dict[R, int] = {}
     for value, weight in zset.items():
         fvalue = f(value)
         if fvalue not in output:
-           output[fvalue] = weight 
+            output[fvalue] = weight
         else:
-           output[fvalue] += weight
-    
-    return ZSet(output) 
+            output[fvalue] += weight
 
-S = TypeVar("S") 
+    return ZSet(output)
+
+
+S = TypeVar("S")
 JoinCmp = Callable[[T, R], bool]
 PostJoinProjection = Callable[[T, R], S]
+
 
 def join[T, R, S](
     left_zset: ZSet[T],
@@ -73,6 +79,7 @@ def join[T, R, S](
 
     return ZSet(output)
 
+
 def H[T](diff: ZSet[T], integrated_state: ZSet[T]) -> ZSet[T]:
     distincted_diff: Dict[T, int] = {}
     for k, v in diff.items():
@@ -80,9 +87,7 @@ def H[T](diff: ZSet[T], integrated_state: ZSet[T]) -> ZSet[T]:
 
         if k in integrated_state:
             current_k_latest_delayed_state_weight = integrated_state[k]
-            coalesced_weight = (
-                current_k_latest_diff_weight + current_k_latest_delayed_state_weight
-            )
+            coalesced_weight = current_k_latest_diff_weight + current_k_latest_delayed_state_weight
 
             if current_k_latest_delayed_state_weight > 0 and coalesced_weight <= 0:
                 distincted_diff[k] = -1
