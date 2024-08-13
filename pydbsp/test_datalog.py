@@ -1,4 +1,4 @@
-from datalog import EDB, Fact, IncrementalDatalog, Program, Rule, Variable
+from datalog import EDB, Fact, IncrementalDatalog, IncrementalDatalogWithIndexing, Program, Rule, Variable
 from stream import Stream, StreamHandle
 from stream_operators import stream_elimination
 from test_zset import create_test_zset_graph
@@ -44,9 +44,13 @@ def test_reachability() -> None:
     edb_stream.send(test_edb)
 
     incremental_datalog = IncrementalDatalog(edb_stream_h, program_stream_h, None)
+    incremental_indexed_datalog = IncrementalDatalogWithIndexing(edb_stream_h, program_stream_h, None)
     incremental_datalog.step()
+    incremental_indexed_datalog.step()
     output_stream = incremental_datalog.output_handle().get()
+    indexed_output_stream = incremental_indexed_datalog.output_handle().get()
     actual_output = stream_elimination(output_stream)
+    indexed_actual_output = stream_elimination(indexed_output_stream)
 
     expected_output = edb_group.identity()
     for fact, weight in test_edb.items():
@@ -63,6 +67,7 @@ def test_reachability() -> None:
     expected_output.inner[("T", (2, 4))] = 1
 
     assert actual_output == expected_output
+    assert indexed_actual_output == expected_output
 
 
 def test_triangle() -> None:
@@ -96,9 +101,13 @@ def test_triangle() -> None:
     edb_stream.send(test_edb)
 
     incremental_datalog = IncrementalDatalog(edb_stream_h, program_stream_h, None)
+    incremental_indexed_datalog = IncrementalDatalogWithIndexing(edb_stream_h, program_stream_h, None)
     incremental_datalog.step()
+    incremental_indexed_datalog.step()
     output_stream = incremental_datalog.output_handle().get()
+    indexed_output_stream = incremental_indexed_datalog.output_handle().get()
     actual_output = stream_elimination(output_stream)
+    indexed_actual_output = stream_elimination(indexed_output_stream)
 
     expected_output = edb_group.identity()
     for fact, weight in test_edb.items():
@@ -109,3 +118,4 @@ def test_triangle() -> None:
     expected_output.inner[("T", (3, 1, 2))] = 1
 
     assert actual_output == expected_output
+    assert indexed_actual_output == expected_output
