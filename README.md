@@ -1,6 +1,8 @@
 # PyDBSP
 <div align="center">
-<a href="assets/logo.svg" width=400px /></a>
+<a href="/assets/" />
+<img src="/assets/logo.svg" width=400px" />
+</a>
 </div>
 
 ## Introduction
