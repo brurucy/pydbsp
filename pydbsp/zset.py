@@ -1,4 +1,4 @@
-from typing import Dict, Generic, Iterable, Tuple, TypeVar, Callable
+from typing import Callable, Dict, Generic, Iterable, Tuple, TypeVar
 
 T = TypeVar("T")
 
@@ -29,6 +29,9 @@ class ZSet(Generic[T]):
             return 0
 
         return self.inner[item]
+
+    def __setitem__(self, key: T, value: int) -> None:
+        self.inner[key] = value
 
 
 Cmp = Callable[[T], bool]
