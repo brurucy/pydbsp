@@ -1,5 +1,6 @@
-from stream import Stream, StreamHandle
-from test_algebra import IntegerAddition
+from pydbsp.stream import Stream, StreamHandle
+
+from test.test_algebra import IntegerAddition
 
 
 def test_stream() -> None:

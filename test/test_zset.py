@@ -1,7 +1,9 @@
 from typing import Tuple
 
-from zset import H, ZSet, join, project, select
-from zset_operators import ZSetAddition
+from pydbsp.zset import ZSet, ZSetAddition
+from pydbsp.zset.functions.bilinear import join
+from pydbsp.zset.functions.binary import H
+from pydbsp.zset.functions.linear import project, select
 
 Edge = Tuple[int, int]
 GraphZSet = ZSet[Edge]

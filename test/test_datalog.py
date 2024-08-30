@@ -1,8 +1,17 @@
-from datalog import EDB, Fact, IncrementalDatalog, IncrementalDatalogWithIndexing, Program, Rule, Variable
-from stream import Stream, StreamHandle
-from stream_operators import stream_elimination
-from test_zset import create_test_zset_graph
-from zset_operators import ZSetAddition
+from pydbsp.algorithms.datalog import (
+    EDB,
+    Fact,
+    IncrementalDatalog,
+    IncrementalDatalogWithIndexing,
+    Program,
+    Rule,
+    Variable,
+)
+from pydbsp.stream import Stream, StreamHandle
+from pydbsp.stream.functions.linear import stream_elimination
+from pydbsp.zset import ZSetAddition
+
+from test.test_zset import create_test_zset_graph
 
 
 def create_test_edb(n: int) -> EDB:

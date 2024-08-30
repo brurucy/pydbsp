@@ -1,4 +1,4 @@
-from algebra import AbelianGroupOperation
+from pydbsp.core import AbelianGroupOperation
 
 
 class IntegerAddition(AbelianGroupOperation[int]):

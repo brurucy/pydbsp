@@ -339,7 +339,7 @@ print(f"Time taken - on demand with pandas: {time() - time_start}s")
 Let's go big. At what point does pandas start to struggle? If we shift the batch up to `20000` new employees and salaries, and push 150 of these, pandas
 takes around 24 seconds to churn through.
 
-Now, for what you've been waiting for. Could we leverage `pydbsp` to incrementalize this?
+Now, for what you've been waiting for. Could we leverage `pydbsp` to speed this up?
 
 ```python
 from pydbsp.core import AbelianGroupOperation
@@ -471,4 +471,4 @@ print(f"Time taken - incremental: {time() - time_start}s")
 </a>
 </div>
 
-Amazing! we **did** indeed get a almost `2x` speedup. Definitely less dramatic than the previous ones, but a significant one nonetheless. 
+Amazing! we **did** indeed get an almost `2x` speedup. Definitely less dramatic than the previous ones, but a significant one nonetheless. 

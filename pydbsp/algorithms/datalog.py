@@ -1,19 +1,23 @@
 from typing import Any, Dict, List, NewType, Optional, Set, Tuple, TypeAlias, TypeVar, cast
 
-from stream import Stream, StreamHandle
-from stream_operator import BinaryOperator
-from stream_operators import (
-    Delay,
-    Lifted1,
+from pydbsp.stream import (
+    BinaryOperator,
+    Lift1,
     LiftedGroupAdd,
-    LiftedStreamElimination,
-    LiftedStreamIntroduction,
+    Stream,
     StreamAddition,
+    StreamHandle,
     step_until_timestamp,
     step_until_timestamp_and_return,
 )
-from zset import ZSet
-from zset_operators import DeltaLiftedDeltaLiftedDistinct, LiftedLiftedDeltaJoin, ZSetAddition
+from pydbsp.stream.operators.linear import (
+    Delay,
+    LiftedStreamElimination,
+    LiftedStreamIntroduction,
+)
+from pydbsp.zset import ZSet, ZSetAddition
+from pydbsp.zset.operators.bilinear import DeltaLiftedDeltaLiftedJoin
+from pydbsp.zset.operators.unary import DeltaLiftedDeltaLiftedDistinct
 
 Constant = Any
 _Variable: TypeAlias = str
@@ -248,9 +252,11 @@ class IncrementalDatalog(BinaryOperator[EDB, Program, EDB]):
     rewrites: StreamHandle[ZSet[ProvenanceIndexedRewrite]]
     lifted_rewrites: LiftedStreamIntroduction[ZSet[ProvenanceIndexedRewrite]]
 
-    iteration: LiftedLiftedDeltaJoin[ProvenanceIndexedRewrite, ProvenanceDirection, AtomWithSourceRewriteAndProvenance]
-    rewrite_product: LiftedLiftedDeltaJoin[AtomWithSourceRewriteAndProvenance, Fact, ProvenanceIndexedRewrite]
-    fresh_facts: LiftedLiftedDeltaJoin[ProvenanceIndexedRewrite, Canary, Fact]
+    iteration: DeltaLiftedDeltaLiftedJoin[
+        ProvenanceIndexedRewrite, ProvenanceDirection, AtomWithSourceRewriteAndProvenance
+    ]
+    rewrite_product: DeltaLiftedDeltaLiftedJoin[AtomWithSourceRewriteAndProvenance, Fact, ProvenanceIndexedRewrite]
+    fresh_facts: DeltaLiftedDeltaLiftedJoin[ProvenanceIndexedRewrite, Canary, Fact]
 
     distinct_facts: DeltaLiftedDeltaLiftedDistinct[Fact]
     distinct_rewrites: DeltaLiftedDeltaLiftedDistinct[ProvenanceIndexedRewrite]
@@ -286,11 +292,11 @@ class IncrementalDatalog(BinaryOperator[EDB, Program, EDB]):
         self.provenance = self.lift_derive_program_provenance.provenance_stream_handle
         self.lifted_intro_provenance = LiftedStreamIntroduction(self.provenance)
 
-        self.iteration = LiftedLiftedDeltaJoin(
+        self.iteration = DeltaLiftedDeltaLiftedJoin(
             None, None, lambda left, right: left[0] == right[0], lambda left, right: (right[1], right[2], left[1])
         )
 
-        self.rewrite_product = LiftedLiftedDeltaJoin(
+        self.rewrite_product = DeltaLiftedDeltaLiftedJoin(
             self.iteration.output_handle(),
             None,
             lambda left, right: left[1] is None
@@ -298,7 +304,7 @@ class IncrementalDatalog(BinaryOperator[EDB, Program, EDB]):
             rewrite_product_projection,
         )
 
-        self.fresh_facts = LiftedLiftedDeltaJoin(
+        self.fresh_facts = DeltaLiftedDeltaLiftedJoin(
             self.rewrite_product.output_handle(),
             self.lifted_intro_grounding.output_handle(),
             lambda left, right: left[0] == right[0],
@@ -400,12 +406,12 @@ def compute_index(program: Program) -> ColumnIndex:
     return column_index
 
 
-class LiftedComputeIndexSchemas(Lifted1[Program, ColumnIndex]):
+class LiftedComputeIndexSchemas(Lift1[Program, ColumnIndex]):
     def __init__(self, stream: Optional[StreamHandle[Program]]):
         super().__init__(stream, lambda p: compute_index(p), None)
 
 
-class LiftedLiftedComputeIndexSchemas(Lifted1[Stream[Program], Stream[ColumnIndex]]):
+class LiftedLiftedComputeIndexSchemas(Lift1[Stream[Program], Stream[ColumnIndex]]):
     def __init__(
         self,
         stream: Optional[StreamHandle[Stream[Program]]],
@@ -569,14 +575,15 @@ class IncrementalDatalogWithIndexing(BinaryOperator[EDB, Program, EDB]):
     rewrites: StreamHandle[ZSet[ProvenanceIndexedRewrite]]
     lift_rewrites: LiftedStreamIntroduction[ZSet[ProvenanceIndexedRewrite]]
 
-    iteration: LiftedLiftedDeltaJoin[
+    iteration: DeltaLiftedDeltaLiftedJoin[
         ProvenanceIndexedRewrite, ExtendedProvenanceDirection, AtomWithSourceRewriteAndProvenance
     ]
-    # Rewrite product joins on predicate AND column index
-    rewrite_product: LiftedLiftedDeltaJoin[AtomWithSourceRewriteAndProvenance, IndexedFact, ProvenanceIndexedRewrite]
-    fresh_facts: LiftedLiftedDeltaJoin[ProvenanceIndexedRewrite, Canary, Fact]
-    # We then index fresh facts. Gotta add a distinct as well to indexed facts
-    indexed_fresh_facts: LiftedLiftedDeltaJoin[Fact, ExtendedProvenanceDirection, IndexedFact]
+
+    rewrite_product: DeltaLiftedDeltaLiftedJoin[
+        AtomWithSourceRewriteAndProvenance, IndexedFact, ProvenanceIndexedRewrite
+    ]
+    fresh_facts: DeltaLiftedDeltaLiftedJoin[ProvenanceIndexedRewrite, Canary, Fact]
+    indexed_fresh_facts: DeltaLiftedDeltaLiftedJoin[Fact, ExtendedProvenanceDirection, IndexedFact]
 
     distinct_facts: DeltaLiftedDeltaLiftedDistinct[Fact]
     distinct_indexed_facts: DeltaLiftedDeltaLiftedDistinct[IndexedFact]
@@ -613,14 +620,14 @@ class IncrementalDatalogWithIndexing(BinaryOperator[EDB, Program, EDB]):
         self.lift_lift_grounding = self.lift_lift_derive_program_provenance.grounding_stream_handle
         self.lift_lift_provenance = self.lift_lift_derive_program_provenance.provenance_stream_handle
 
-        self.iteration = LiftedLiftedDeltaJoin(
+        self.iteration = DeltaLiftedDeltaLiftedJoin(
             None,
             None,
             lambda left, right: left[0] == right[0],
             lambda left, right: (right[1], right[2], left[1]),
         )
 
-        self.rewrite_product = LiftedLiftedDeltaJoin(
+        self.rewrite_product = DeltaLiftedDeltaLiftedJoin(
             self.iteration.output_handle(),
             None,
             lambda left, right: left[1] is None
@@ -629,7 +636,7 @@ class IncrementalDatalogWithIndexing(BinaryOperator[EDB, Program, EDB]):
             lambda left, right: rewrite_product_projection((left[0], left[1], left[2]), right[1]),
         )
 
-        self.fresh_facts = LiftedLiftedDeltaJoin(
+        self.fresh_facts = DeltaLiftedDeltaLiftedJoin(
             self.rewrite_product.output_handle(),
             self.lift_lift_grounding,
             lambda left, right: left[0] == right[0],
@@ -640,10 +647,10 @@ class IncrementalDatalogWithIndexing(BinaryOperator[EDB, Program, EDB]):
             self.fresh_facts.output_handle(), self.lift_intro_edb.output_handle()
         )
         self.distinct_facts = DeltaLiftedDeltaLiftedDistinct(self.fresh_facts_plus_edb.output_handle())
-        self.indexed_fresh_facts = LiftedLiftedDeltaJoin(
+        self.indexed_fresh_facts = DeltaLiftedDeltaLiftedJoin(
             self.distinct_facts.output_handle(),
             self.lift_lift_provenance,
-            lambda left, right: left[0] == right[2][0],
+            lambda left, right: left[0] == right[2][0],  # type: ignore
             lambda left, right: index_fact(right[3], left),
         )
         self.distinct_indexed_facts = DeltaLiftedDeltaLiftedDistinct(self.indexed_fresh_facts.output_handle())
