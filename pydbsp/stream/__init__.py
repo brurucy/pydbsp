@@ -79,42 +79,6 @@ class StreamHandle(Generic[T]):
         return self.ref()
 
 
-class StreamAddition(AbelianGroupOperation[Stream[T]]):
-    group: AbelianGroupOperation[T]
-
-    def __init__(self, group: AbelianGroupOperation[T]) -> None:
-        self.group = group
-
-    def add(self, a: Stream[T], b: Stream[T]) -> Stream[T]:
-        a_timestamp = a.current_time()
-        b_timestamp = b.current_time()
-        frontier = min(a_timestamp, b_timestamp)
-        if a_timestamp == -1 or b_timestamp == -1:
-            frontier = max(a_timestamp, b_timestamp)
-
-        output_stream = Stream(self.group)
-        for timestamp in range(frontier + 1):
-            output_stream.send(self.group.add(a[timestamp], b[timestamp]))
-
-        return output_stream
-
-    def inner_group(self) -> AbelianGroupOperation[T]:
-        return self.group
-
-    def neg(self, a: Stream[T]) -> Stream[T]:
-        frontier = a.current_time()
-        output_stream = Stream(self.group)
-        for timestamp in range(frontier + 1):
-            output_stream.send(self.group.neg(a[timestamp]))
-
-        return output_stream
-
-    def identity(self) -> Stream[T]:
-        identity_stream = Stream(self.group)
-
-        return identity_stream
-
-
 R = TypeVar("R")
 
 
@@ -295,3 +259,41 @@ class LiftedGroupAdd(Lift2[T, T, T]):
 class LiftedGroupNegate(Lift1[T, T]):
     def __init__(self, stream: StreamHandle[T]):
         super().__init__(stream, lambda x: stream.get().group().neg(x), None)
+
+
+class StreamAddition(AbelianGroupOperation[Stream[T]]):
+    group: AbelianGroupOperation[T]
+
+    def __init__(self, group: AbelianGroupOperation[T]) -> None:
+        self.group = group
+
+    def add(self, a: Stream[T], b: Stream[T]) -> Stream[T]:
+        handle_a = StreamHandle(lambda: a)
+        handle_b = StreamHandle(lambda: b)
+
+        lifted_group_add = LiftedGroupAdd(handle_a, handle_b)
+        a_timestamp = a.current_time()
+        b_timestamp = b.current_time()
+        frontier = min(a_timestamp, b_timestamp)
+        if a_timestamp == -1 or b_timestamp == -1:
+            frontier = max(a_timestamp, b_timestamp)
+
+        step_until_timestamp(lifted_group_add, frontier)
+
+        return lifted_group_add.output()
+
+    def inner_group(self) -> AbelianGroupOperation[T]:
+        return self.group
+
+    def neg(self, a: Stream[T]) -> Stream[T]:
+        handle_a = StreamHandle(lambda: a)
+        lifted_group_neg = LiftedGroupNegate(handle_a)
+        frontier = a.current_time()
+        step_until_timestamp(lifted_group_neg, frontier)
+
+        return lifted_group_neg.output()
+
+    def identity(self) -> Stream[T]:
+        identity_stream = Stream(self.group)
+
+        return identity_stream

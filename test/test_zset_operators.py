@@ -9,7 +9,7 @@ from pydbsp.stream import (
     step_until_timestamp_and_return,
 )
 from pydbsp.stream.functions.linear import stream_introduction
-from pydbsp.stream.operators.linear import LiftedDelay, LiftedStreamElimination, LiftedStreamIntroduction
+from pydbsp.stream.operators.linear import Delay, LiftedDelay, LiftedStreamElimination, LiftedStreamIntroduction
 from pydbsp.zset import ZSet, ZSetAddition
 from pydbsp.zset.operators.bilinear import DeltaLiftedDeltaLiftedJoin, LiftedJoin, LiftedLiftedJoin
 from pydbsp.zset.operators.linear import LiftedLiftedProject, LiftedLiftedSelect, LiftedProject, LiftedSelect
@@ -190,13 +190,13 @@ class IncrementalGraphReachability(UnaryOperator[GraphZSet, GraphZSet]):
     join: DeltaLiftedDeltaLiftedJoin[Edge, Edge, Edge]
     delta_input_join_sum: LiftedGroupAdd[Stream[GraphZSet]]
     distinct: DeltaLiftedDeltaLiftedDistinct[Edge]
-    lift_delayed_distinct: LiftedDelay[GraphZSet]
+    lift_delayed_distinct: LiftedDelay[Stream[GraphZSet]]
     flattened_output: LiftedStreamElimination[GraphZSet]
 
     def __init__(self, stream: StreamHandle[GraphZSet]):
-        self._input_stream = stream
+        self.input_stream_handle = stream
 
-        self.delta_input = LiftedStreamIntroduction(self._input_stream)
+        self.delta_input = LiftedStreamIntroduction(self.input_stream_handle)
 
         self.join = DeltaLiftedDeltaLiftedJoin(
             None,
@@ -204,10 +204,13 @@ class IncrementalGraphReachability(UnaryOperator[GraphZSet, GraphZSet]):
             lambda left, right: left[1] == right[0],
             lambda left, right: (left[0], right[1]),
         )
-        self.delta_input_join_sum = LiftedGroupAdd(self.delta_input.output_handle(), self.join.output_handle())
+        self.delayed_join = Delay(self.join.output_handle())
+        self.delta_input_join_sum = LiftedGroupAdd(self.delta_input.output_handle(), self.delayed_join.output_handle())
+
         self.distinct = DeltaLiftedDeltaLiftedDistinct(self.delta_input_join_sum.output_handle())
         self.lift_delayed_distinct = LiftedDelay(self.distinct.output_handle())
-        self.join.set_input_a(self.lift_delayed_distinct.output_handle())
+
+        self.join.set_input_a(self.distinct.output_handle())
         self.join.set_input_b(self.delta_input.output_handle())
 
         self.flattened_output = LiftedStreamElimination(self.distinct.output_handle())
@@ -217,9 +220,11 @@ class IncrementalGraphReachability(UnaryOperator[GraphZSet, GraphZSet]):
         self.delta_input.step()
         self.delta_input_join_sum.step()
         self.distinct.step()
-        self.lift_delayed_distinct.step()
         self.join.step()
-        self.flattened_output.step()
+        self.delayed_join.step()
+        self.lift_delayed_distinct.step()
+
+        step_until_timestamp_and_return(self.flattened_output, self.flattened_output.input_a().current_time())
 
         return True
 
@@ -241,8 +246,10 @@ def test_incremental_transitive_closure() -> None:
 
     op = IncrementalGraphReachability(s_h)
     op.step()
-    assert op.output().latest() == create_zset_from_edges([(0, 1)])
+    assert op.output().inner[0] == create_zset_from_edges([(0, 1)])
 
-    s.send(create_zset_from_edges([(0, 2)]))
+    s.send(create_zset_from_edges([(1, 2)]))
     op.step()
-    assert op.output().latest() == create_zset_from_edges([(0, 2)])
+    op.step()
+    assert op.output().inner[1] == create_zset_from_edges([(1, 2)])
+    assert op.output().inner[2] == create_zset_from_edges([(0, 2)])
