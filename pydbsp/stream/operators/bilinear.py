@@ -10,6 +10,16 @@ S = TypeVar("S")
 
 
 class Incrementalize2(BinaryOperator[T, R, S]):
+    """
+    Given some bilinear function f, it both lifts it AND makes it incremental.
+
+    For instance, if f is the relational join ⨝ over Z-sets **a** and **b**, incrementalizing it
+    would create a circuit with three joins, yielding at each timestamp t: a[t] ⨝ b[t] + z^1(I(a))[t] ⨝ b[t] + a[t] ⨝ z^1(I(b))[t]
+
+    Tl;dr this makes the join react to streams of additions and deletions
+
+    """
+
     integrated_stream_a: Integrate[T]
     delayed_integrated_stream_a: Delay[T]
 
@@ -49,6 +59,7 @@ class Incrementalize2(BinaryOperator[T, R, S]):
         )
 
     def step(self) -> bool:
+        """Computes a[t] ⨝ b[t] + z^1(I(a))[t] ⨝ b[t] + a[t] ⨝ z^1(I(b))[t]"""
         self.integrated_stream_a.step()
         self.delayed_integrated_stream_a.step()
 

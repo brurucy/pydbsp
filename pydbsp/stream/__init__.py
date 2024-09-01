@@ -8,6 +8,10 @@ T = TypeVar("T")
 
 
 class Stream(Generic[T]):
+    """
+    Represents a stream of elements from an Abelian group.
+    """
+
     timestamp: int
     inner: List[T]
     group_op: AbelianGroupOperation[T]
@@ -18,13 +22,16 @@ class Stream(Generic[T]):
         self.timestamp = -1
 
     def send(self, element: T) -> None:
+        """Adds an element to the stream and increments the timestamp."""
         self.inner.append(element)
         self.timestamp += 1
 
     def group(self) -> AbelianGroupOperation[T]:
+        """Returns the Abelian group operation associated with this stream."""
         return self.group_op
 
     def current_time(self) -> int:
+        """Returns the timestamp of the most recently arrived element."""
         return self.timestamp
 
     def __iter__(self) -> Iterator[T]:
@@ -34,15 +41,20 @@ class Stream(Generic[T]):
         return self.inner.__repr__()
 
     def __getitem__(self, timestamp: int) -> T:
+        """Returns the element at the given timestamp."""
         if timestamp <= self.current_time() and timestamp >= 0:
             return self.inner.__getitem__(timestamp)
 
         return self.group().identity()
 
     def latest(self) -> T:
+        """Returns the most recent element."""
         return self[self.current_time()]
 
     def __eq__(self, other: object) -> bool | NotImplementedType:
+        """
+        Compares this stream with another, considering all timestamps up to the latest.
+        """
         if not isinstance(other, Stream):
             return NotImplemented
 
@@ -70,12 +82,15 @@ StreamReference = Callable[[], Stream[T]]
 
 
 class StreamHandle(Generic[T]):
+    """A handle to a stream, allowing lazy access."""
+
     ref: StreamReference[T]
 
     def __init__(self, stream_reference: StreamReference[T]) -> None:
         self.ref = stream_reference
 
     def get(self) -> Stream[T]:
+        """Returns the referenced stream."""
         return self.ref()
 
 
@@ -93,6 +108,7 @@ class Operator(Protocol[T]):
 
 
 def step_until_timestamp[T](operator: Operator[T], timestamp: int) -> None:
+    """Advances the operator until it reaches the specified timestamp."""
     current_timestamp = operator.output_handle().get().current_time()
     while current_timestamp < timestamp:
         operator.step()
@@ -106,6 +122,8 @@ def step_until_timestamp_and_return[T](operator: Operator[T], timestamp: int) ->
 
 
 class UnaryOperator(Operator[R], Protocol[T, R]):
+    """Base class for stream operators with a single input and output."""
+
     input_stream_handle: StreamHandle[T]
     output_stream_handle: StreamHandle[R]
 
@@ -122,6 +140,7 @@ class UnaryOperator(Operator[R], Protocol[T, R]):
         stream_handle: StreamHandle[T],
         output_stream_group: Optional[AbelianGroupOperation[R]],
     ) -> None:
+        """Sets the input stream and initializes the output stream."""
         self.input_stream_handle = stream_handle
         if output_stream_group is not None:
             output = Stream(output_stream_group)
@@ -148,6 +167,8 @@ S = TypeVar("S")
 
 
 class BinaryOperator(Operator[S], Protocol[T, R, S]):
+    """Base class for stream operators with two inputs and one output."""
+
     input_stream_handle_a: StreamHandle[T]
     input_stream_handle_b: StreamHandle[R]
     output_stream_handle: StreamHandle[S]
@@ -170,15 +191,18 @@ class BinaryOperator(Operator[S], Protocol[T, R, S]):
             self.set_output_stream(StreamHandle(lambda: output))
 
     def set_input_a(self, stream_handle_a: StreamHandle[T]) -> None:
+        """Sets the first input stream and initializes the output stream."""
         self.input_stream_handle_a = stream_handle_a
         output = cast(Stream[S], Stream(self.input_a().group()))
 
         self.set_output_stream(StreamHandle(lambda: output))
 
     def set_input_b(self, stream_handle_b: StreamHandle[R]) -> None:
+        """Sets the second input stream."""
         self.input_stream_handle_b = stream_handle_b
 
     def set_output_stream(self, output_stream_handle: StreamHandle[S]) -> None:
+        """Sets the output stream handle."""
         self.output_stream_handle = output_stream_handle
 
     def output(self) -> Stream[S]:
@@ -200,6 +224,8 @@ F1 = Callable[[T], R]
 
 
 class Lift1(UnaryOperator[T, R]):
+    """Lifts a unary function to operate on streams."""
+
     f1: F1[T, R]
 
     def __init__(
@@ -212,6 +238,7 @@ class Lift1(UnaryOperator[T, R]):
         super().__init__(stream, output_stream_group)
 
     def step(self) -> bool:
+        """Applies the lifted function to the next element in the input stream."""
         output_timestamp = self.output().current_time()
 
         self.output().send(self.f1(self.input_a()[output_timestamp + 1]))
@@ -223,6 +250,8 @@ F2 = Callable[[T, R], S]
 
 
 class Lift2(BinaryOperator[T, R, S]):
+    """Lifts a binary function to operate on two streams."""
+
     def __init__(
         self,
         stream_a: Optional[StreamHandle[T]],
@@ -235,6 +264,7 @@ class Lift2(BinaryOperator[T, R, S]):
         super().__init__(stream_a, stream_b, output_stream_group)
 
     def step(self) -> bool:
+        """Applies the lifted function to the next elements in both input streams."""
         output_timestamp = self.output().current_time()
 
         a = self.input_a()[output_timestamp + 1]
@@ -262,12 +292,15 @@ class LiftedGroupNegate(Lift1[T, T]):
 
 
 class StreamAddition(AbelianGroupOperation[Stream[T]]):
+    """Defines addition for streams by lifting their underlying group's addition."""
+
     group: AbelianGroupOperation[T]
 
     def __init__(self, group: AbelianGroupOperation[T]) -> None:
         self.group = group
 
     def add(self, a: Stream[T], b: Stream[T]) -> Stream[T]:
+        """Adds two streams element-wise."""
         handle_a = StreamHandle(lambda: a)
         handle_b = StreamHandle(lambda: b)
 
@@ -283,9 +316,11 @@ class StreamAddition(AbelianGroupOperation[Stream[T]]):
         return lifted_group_add.output()
 
     def inner_group(self) -> AbelianGroupOperation[T]:
+        """Returns the underlying group operation."""
         return self.group
 
     def neg(self, a: Stream[T]) -> Stream[T]:
+        """Negates a stream element-wise."""
         handle_a = StreamHandle(lambda: a)
         lifted_group_neg = LiftedGroupNegate(handle_a)
         frontier = a.current_time()
@@ -294,6 +329,7 @@ class StreamAddition(AbelianGroupOperation[Stream[T]]):
         return lifted_group_neg.output()
 
     def identity(self) -> Stream[T]:
+        """Returns an identity stream for the addition operation."""
         identity_stream = Stream(self.group)
 
         return identity_stream

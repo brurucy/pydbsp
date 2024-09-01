@@ -10,6 +10,10 @@ T = TypeVar("T")
 
 
 class DeltaLiftedDeltaLiftedDistinct(UnaryOperator[Stream[ZSet[T]], Stream[ZSet[T]]]):
+    """
+    A complex operator for maintaining distinct elements in a stream of streams.
+    """
+
     integrated_diff_stream_a: Integrate[Stream[ZSet[T]]]
     lift_integrated_diff_stream_a: LiftedIntegrate[ZSet[T]]
     lift_delay_lift_integrated_diff_stream_a: LiftedDelay[ZSet[T]]
