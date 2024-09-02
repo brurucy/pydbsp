@@ -10,6 +10,16 @@ def join_with_index[T, I1, R, S](
     right_indexed_zset: IndexedZSet[R, I1],
     f: PostJoinProjection[T, R, S],
 ) -> ZSet[S]:
+    """
+    Joins two ZSets. Takes advantage of the B-Tree indexes and is implemented as a sort-merge join.
+
+    Args:
+       left_zset
+       right_zset
+       p: Join key function
+       f: projection to be applied to the join
+    """
+
     output: ZSet[S] = ZSet({})
 
     for match in sort_merge_join(left_indexed_zset.index, right_indexed_zset.index):

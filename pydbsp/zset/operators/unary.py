@@ -11,7 +11,8 @@ T = TypeVar("T")
 
 class DeltaLiftedDeltaLiftedDistinct(UnaryOperator[Stream[ZSet[T]], Stream[ZSet[T]]]):
     """
-    A complex operator for maintaining distinct elements in a stream of streams.
+    An operator for incrementally maintaining distinct elements in a stream of
+    streams. See :func:`~pydbsp.zset.functions.binary.H`
     """
 
     integrated_diff_stream_a: Integrate[Stream[ZSet[T]]]

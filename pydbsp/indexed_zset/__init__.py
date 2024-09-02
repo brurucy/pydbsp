@@ -8,6 +8,10 @@ T = TypeVar("T")
 
 
 class AppendOnlySpine(Generic[T]):
+    """
+    A append-only B-Tree node. Borrowed from `https://github.com/grantjenks/python-sortedcontainers` and `https://github.com/brurucy/indexset`. Only for internal use.
+    """
+
     _len: int
     _load: int
     _lists: List[List[T]]
@@ -90,6 +94,10 @@ Indexer = Callable[[T], I]
 
 
 class IndexedZSet(Generic[T, I], ZSet[T]):
+    """
+    Represents a Z-set, with a B-Tree index. See :func:`~pydbsp.zset.ZSet`.
+    """
+
     inner: Dict[T, int]
     index_to_value: Dict[I, Set[T]]
     indexer: Callable[[T], I]

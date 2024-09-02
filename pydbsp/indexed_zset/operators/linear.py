@@ -11,6 +11,8 @@ I = TypeVar("I")
 
 
 class LiftedIndex(Lift1[ZSet[T], IndexedZSet[T, I]]):
+    """Creates a stream where the output at each timestamp is the input ZSet indexed according to some indexing function"""
+
     indexer: Indexer[T, I]
 
     def __init__(self, stream: Optional[StreamHandle[ZSet[T]]], indexer: Indexer[T, I]):

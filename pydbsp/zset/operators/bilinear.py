@@ -36,6 +36,10 @@ class LiftedLiftedJoin(
         Stream[ZSet[S]],
     ]
 ):
+    """
+    Computes the Z-Set join between two streams element-wise.
+    """
+
     def __init__(
         self,
         stream_a: Optional[StreamHandle[Stream[ZSet[T]]]],
@@ -55,6 +59,10 @@ class LiftedLiftedJoin(
 
 
 class DeltaLiftedDeltaLiftedJoin(BinaryOperator[Stream[ZSet[T]], Stream[ZSet[R]], Stream[ZSet[S]]]):
+    """
+    Incrementally computes the Z-Set join between two streams element-wise. Equivalent to incrementalizing a doubly-lifted join. See :func:`~pydbsp.stream.operators.Incrementalize2` to grasp what it means to incrementalize a singly-lifted join.
+    """
+
     p: JoinCmp[T, R]
     f: PostJoinProjection[T, R, S]
 

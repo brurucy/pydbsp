@@ -16,14 +16,13 @@ def join[T, R, S](
     f: PostJoinProjection[T, R, S],
 ) -> ZSet[S]:
     """
-    Joins two ZSets.
+    Joins two ZSets. Implemented as a nested loop join.
 
     Args:
        left_zset
        right_zset
        p: Join key function
        f: projection to be applied to the join
-
     """
     output: Dict[S, int] = {}
     for left_value, left_weight in left_zset.items():
