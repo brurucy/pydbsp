@@ -136,17 +136,17 @@ S = TypeVar("S")
 Q = TypeVar("Q")
 
 Provenance: TypeAlias = int
-ProvenanceDirection: TypeAlias = tuple[Provenance, Provenance, Atom | None]
-ProvenanceChain: TypeAlias = ZSet[ProvenanceDirection]
+Direction: TypeAlias = tuple[Provenance, Provenance, Atom | None]
+ProvenanceChain: TypeAlias = ZSet[Direction]
 
 Head: TypeAlias = Atom
-Canary = tuple[Provenance, Head]
-GroundingCanaries = ZSet[Canary]
+Signal = tuple[Provenance, Head]
+GroundingSignals = ZSet[Signal]
 
-EmptyGroundingCanaries: GroundingCanaries = ZSetAddition().identity()
+EmptyGroundingCanaries: GroundingSignals = ZSetAddition().identity()
 
 
-def derive_rule_provenance(rule: Rule) -> tuple[GroundingCanaries, ProvenanceChain]:
+def derive_rule_provenance(rule: Rule) -> tuple[GroundingSignals, ProvenanceChain]:
     provenance_chain: ProvenanceChain = ZSetAddition().identity()
     running_provenance = 0
 
@@ -158,17 +158,17 @@ def derive_rule_provenance(rule: Rule) -> tuple[GroundingCanaries, ProvenanceCha
             provenance_chain.inner[(previous_atom_provenance, running_provenance, dependency)] = 1
 
     full_provenance = running_provenance
-    grounding_canaries: GroundingCanaries = ZSetAddition().identity()
+    grounding_canaries: GroundingSignals = ZSetAddition().identity()
     grounding_canaries.inner[(full_provenance, rule[0])] = 1  # type: ignore
 
     return (grounding_canaries, provenance_chain)
 
 
-def derive_program_provenance(program: Program) -> tuple[GroundingCanaries, ProvenanceChain]:
-    grounding_group: ZSetAddition[Canary] = ZSetAddition()
-    grounding_canaries: GroundingCanaries = ZSetAddition().identity()
+def derive_program_provenance(program: Program) -> tuple[GroundingSignals, ProvenanceChain]:
+    grounding_group: ZSetAddition[Signal] = ZSetAddition()
+    grounding_canaries: GroundingSignals = ZSetAddition().identity()
 
-    provenance_group: ZSetAddition[ProvenanceDirection] = ZSetAddition()
+    provenance_group: ZSetAddition[Direction] = ZSetAddition()
     provenance_chain: ProvenanceChain = ZSetAddition().identity()
     for rule in program.inner.keys():
         (canaries, chain) = derive_rule_provenance(rule)
@@ -178,23 +178,69 @@ def derive_program_provenance(program: Program) -> tuple[GroundingCanaries, Prov
     return grounding_canaries, provenance_chain
 
 
+def sig(program: Program) -> GroundingSignals:
+    signals: GroundingSignals = ZSetAddition().identity()
+
+    for rule, weight in program.items():
+        running_provenance = 0
+
+        if len(rule) > 1:
+            for dependency in rule[1:]:
+                running_provenance += hash(dependency)
+
+        full_provenance = running_provenance
+        signals.inner[(full_provenance, rule[0])] = weight  # type: ignore
+
+    return signals
+
+
+class LiftedSig(Lift1[Program, GroundingSignals]):
+    def __init__(self, stream: Optional[StreamHandle[Program]]):
+        group: ZSetAddition[Signal] = ZSetAddition()
+
+        super().__init__(stream, sig, group)
+
+
+def dir(program: Program) -> ProvenanceChain:
+    directions: ProvenanceChain = ZSetAddition().identity()
+
+    for rule, weight in program.items():
+        running_provenance = 0
+
+        if len(rule) > 1:
+            for dependency in rule[1:]:
+                previous_atom_provenance = running_provenance
+                running_provenance += hash(dependency)
+
+                directions.inner[(previous_atom_provenance, running_provenance, dependency)] = weight
+
+    return directions
+
+
+class LiftedDir(Lift1[Program, ProvenanceChain]):
+    def __init__(self, stream: Optional[StreamHandle[Program]]):
+        group: ZSetAddition[Direction] = ZSetAddition()
+
+        super().__init__(stream, dir, group)
+
+
 class LiftedDeriveProgramProvenance:
     input_a: StreamHandle[Program]
-    grounding_stream_handle: StreamHandle[GroundingCanaries]
+    grounding_stream_handle: StreamHandle[GroundingSignals]
     provenance_stream_handle: StreamHandle[ProvenanceChain]
 
     def __init__(self, stream_handle: StreamHandle[Program]) -> None:
         self.input_a = stream_handle
-        grounding_group: ZSetAddition[Canary] = ZSetAddition()
-        grounding_stream: Stream[GroundingCanaries] = Stream(grounding_group)
+        grounding_group: ZSetAddition[Signal] = ZSetAddition()
+        grounding_stream: Stream[GroundingSignals] = Stream(grounding_group)
 
-        provenance_group: ZSetAddition[ProvenanceDirection] = ZSetAddition()
+        provenance_group: ZSetAddition[Direction] = ZSetAddition()
         provenance_stream: Stream[ProvenanceChain] = Stream(provenance_group)
 
         self.grounding_stream_handle = StreamHandle(lambda: grounding_stream)
         self.provenance_stream_handle = StreamHandle(lambda: provenance_stream)
 
-    def output_grounding(self) -> Stream[GroundingCanaries]:
+    def output_grounding(self) -> Stream[GroundingSignals]:
         return self.grounding_stream_handle.get()
 
     def output_provenance(self) -> Stream[ProvenanceChain]:
@@ -239,11 +285,10 @@ provenance_indexed_rewrite_identity: ProvenanceChain = ZSetAddition().identity()
 
 class IncrementalDatalog(BinaryOperator[EDB, Program, EDB]):
     # Program transformations
-    lift_derive_program_provenance: LiftedDeriveProgramProvenance
-    grounding: StreamHandle[GroundingCanaries]
-    lifted_intro_grounding: LiftedStreamIntroduction[GroundingCanaries]
-    provenance: StreamHandle[ProvenanceChain]
-    lifted_intro_provenance: LiftedStreamIntroduction[ProvenanceChain]
+    lifted_sig: LiftedSig
+    lifted_intro_lifted_sig: LiftedStreamIntroduction[GroundingSignals]
+    lifted_dir: LiftedDir
+    lifted_intro_lifted_dir: LiftedStreamIntroduction[ProvenanceChain]
 
     # EDB transformations
     lifted_intro_edb: LiftedStreamIntroduction[EDB]
@@ -252,21 +297,24 @@ class IncrementalDatalog(BinaryOperator[EDB, Program, EDB]):
     rewrites: StreamHandle[ZSet[ProvenanceIndexedRewrite]]
     lifted_rewrites: LiftedStreamIntroduction[ZSet[ProvenanceIndexedRewrite]]
 
-    iteration: DeltaLiftedDeltaLiftedJoin[
-        ProvenanceIndexedRewrite, ProvenanceDirection, AtomWithSourceRewriteAndProvenance
-    ]
-    rewrite_product: DeltaLiftedDeltaLiftedJoin[AtomWithSourceRewriteAndProvenance, Fact, ProvenanceIndexedRewrite]
-    fresh_facts: DeltaLiftedDeltaLiftedJoin[ProvenanceIndexedRewrite, Canary, Fact]
+    # Joins
+    gatekeep: DeltaLiftedDeltaLiftedJoin[ProvenanceIndexedRewrite, Direction, AtomWithSourceRewriteAndProvenance]
+    product: DeltaLiftedDeltaLiftedJoin[AtomWithSourceRewriteAndProvenance, Fact, ProvenanceIndexedRewrite]
+    ground: DeltaLiftedDeltaLiftedJoin[ProvenanceIndexedRewrite, Signal, Fact]
 
-    distinct_facts: DeltaLiftedDeltaLiftedDistinct[Fact]
+    # Distincts
     distinct_rewrites: DeltaLiftedDeltaLiftedDistinct[ProvenanceIndexedRewrite]
+    distinct_facts: DeltaLiftedDeltaLiftedDistinct[Fact]
 
+    # Delays
     delay_distinct_facts: Delay[Stream[ZSet[Fact]]]
     delay_distinct_rewrites: Delay[Stream[ZSet[ProvenanceIndexedRewrite]]]
 
+    # Pluses
     fresh_facts_plus_edb: LiftedGroupAdd[Stream[EDB]]
     rewrite_product_plus_rewrites: LiftedGroupAdd[Stream[ZSet[ProvenanceIndexedRewrite]]]
 
+    # Stream elimination
     lifted_elim_fresh_facts: LiftedStreamElimination[EDB]
 
     def set_input_a(self, stream_handle_a: StreamHandle[EDB]) -> None:
@@ -284,63 +332,61 @@ class IncrementalDatalog(BinaryOperator[EDB, Program, EDB]):
 
     def set_input_b(self, stream_handle_b: StreamHandle[Program]) -> None:
         self.input_stream_handle_b = stream_handle_b
-        self.lift_derive_program_provenance = LiftedDeriveProgramProvenance(self.input_stream_handle_b)
 
-        self.grounding = self.lift_derive_program_provenance.grounding_stream_handle
-        self.lifted_intro_grounding = LiftedStreamIntroduction(self.grounding)
+        self.lifted_sig = LiftedSig(self.input_stream_handle_b)
+        self.lifted_intro_lifted_sig = LiftedStreamIntroduction(self.lifted_sig.output_handle())
 
-        self.provenance = self.lift_derive_program_provenance.provenance_stream_handle
-        self.lifted_intro_provenance = LiftedStreamIntroduction(self.provenance)
+        self.lifted_dir = LiftedDir(self.input_stream_handle_b)
+        self.lifted_intro_lifted_dir = LiftedStreamIntroduction(self.lifted_dir.output_handle())
 
-        self.iteration = DeltaLiftedDeltaLiftedJoin(
+        self.gatekeep = DeltaLiftedDeltaLiftedJoin(
             None, None, lambda left, right: left[0] == right[0], lambda left, right: (right[1], right[2], left[1])
         )
 
-        self.rewrite_product = DeltaLiftedDeltaLiftedJoin(
-            self.iteration.output_handle(),
+        self.product = DeltaLiftedDeltaLiftedJoin(
+            self.gatekeep.output_handle(),
             None,
             lambda left, right: left[1] is None
             or (left[1][0] == right[0] and unify(left[2].apply(left[1]), right) is not None),
             rewrite_product_projection,
         )
 
-        self.fresh_facts = DeltaLiftedDeltaLiftedJoin(
-            self.rewrite_product.output_handle(),
-            self.lifted_intro_grounding.output_handle(),
+        self.ground = DeltaLiftedDeltaLiftedJoin(
+            self.product.output_handle(),
+            self.lifted_intro_lifted_sig.output_handle(),
             lambda left, right: left[0] == right[0],
             lambda left, right: left[1].apply(right[1]),
         )
 
-        self.fresh_facts_plus_edb = LiftedGroupAdd(
-            self.fresh_facts.output_handle(), self.lifted_intro_edb.output_handle()
-        )
+        self.fresh_facts_plus_edb = LiftedGroupAdd(self.ground.output_handle(), self.lifted_intro_edb.output_handle())
         self.distinct_facts = DeltaLiftedDeltaLiftedDistinct(self.fresh_facts_plus_edb.output_handle())
 
         self.rewrite_product_plus_rewrites = LiftedGroupAdd(
-            self.rewrite_product.output_handle(), self.lifted_rewrites.output_handle()
+            self.product.output_handle(), self.lifted_rewrites.output_handle()
         )
         self.distinct_rewrites = DeltaLiftedDeltaLiftedDistinct(self.rewrite_product_plus_rewrites.output_handle())
 
         self.delay_distinct_facts = Delay(self.distinct_facts.output_handle())
         self.delay_distinct_rewrites = Delay(self.distinct_rewrites.output_handle())
-        self.iteration.set_input_a(self.delay_distinct_rewrites.output_handle())
-        self.iteration.set_input_b(self.lifted_intro_provenance.output_handle())
-        self.rewrite_product.set_input_b(self.delay_distinct_facts.output_handle())
+        self.gatekeep.set_input_a(self.delay_distinct_rewrites.output_handle())
+        self.gatekeep.set_input_b(self.lifted_intro_lifted_dir.output_handle())
+        self.product.set_input_b(self.delay_distinct_facts.output_handle())
 
         self.lifted_elim_fresh_facts = LiftedStreamElimination(self.distinct_facts.output_handle())
         self.output_stream_handle = self.lifted_elim_fresh_facts.output_handle()
 
     def step(self) -> bool:
-        self.lifted_intro_edb.step()
-        self.lifted_rewrites.step()
-        self.lift_derive_program_provenance.step()
-        self.lifted_intro_grounding.step()
-        self.lifted_intro_provenance.step()
+        step_until_timestamp(self.lifted_intro_edb, self.lifted_intro_edb.input_a().current_time())
+        step_until_timestamp(self.lifted_rewrites, self.lifted_rewrites.input_a().current_time())
+        step_until_timestamp(self.lifted_sig, self.lifted_sig.input_a().current_time())
+        step_until_timestamp(self.lifted_dir, self.lifted_dir.input_a().current_time())
+        step_until_timestamp(self.lifted_intro_lifted_sig, self.lifted_intro_lifted_sig.input_a().current_time())
+        step_until_timestamp(self.lifted_intro_lifted_dir, self.lifted_intro_lifted_dir.input_a().current_time())
 
         while True:
-            self.iteration.step()
-            self.rewrite_product.step()
-            self.fresh_facts.step()
+            self.gatekeep.step()
+            self.product.step()
+            self.ground.step()
             self.fresh_facts_plus_edb.step()
             self.distinct_facts.step()
             new_facts = self.distinct_facts.output().latest().latest()
@@ -484,7 +530,7 @@ def compute_rule_column_reference_sequence(rule: Rule) -> ColumnReferenceSequenc
     return column_reference_sequence
 
 
-def derive_extended_rule_provenance(rule: Rule) -> tuple[GroundingCanaries, ExtendedProvenanceChain]:
+def derive_extended_rule_provenance(rule: Rule) -> tuple[GroundingSignals, ExtendedProvenanceChain]:
     provenance_chain: ExtendedProvenanceChain = ZSetAddition().identity()
     column_reference_sequence = compute_rule_column_reference_sequence(rule)
 
@@ -500,15 +546,15 @@ def derive_extended_rule_provenance(rule: Rule) -> tuple[GroundingCanaries, Exte
             ] = 1
 
     full_provenance = running_provenance
-    grounding_canaries: GroundingCanaries = ZSetAddition().identity()
+    grounding_canaries: GroundingSignals = ZSetAddition().identity()
     grounding_canaries.inner[(full_provenance, rule[0])] = 1  # type: ignore
 
     return (grounding_canaries, provenance_chain)
 
 
-def derive_extended_program_provenance(program: Program) -> tuple[GroundingCanaries, ExtendedProvenanceChain]:
-    grounding_group: ZSetAddition[Canary] = ZSetAddition()
-    grounding_canaries: GroundingCanaries = ZSetAddition().identity()
+def derive_extended_program_provenance(program: Program) -> tuple[GroundingSignals, ExtendedProvenanceChain]:
+    grounding_group: ZSetAddition[Signal] = ZSetAddition()
+    grounding_canaries: GroundingSignals = ZSetAddition().identity()
 
     provenance_group: ZSetAddition[ExtendedProvenanceDirection] = ZSetAddition()
     provenance_chain: ExtendedProvenanceChain = ZSetAddition().identity()
@@ -522,13 +568,13 @@ def derive_extended_program_provenance(program: Program) -> tuple[GroundingCanar
 
 class LiftedLiftedDeriveExtendedProgramProvenance:
     input_a: StreamHandle[Stream[Program]]
-    grounding_stream_handle: StreamHandle[Stream[GroundingCanaries]]
+    grounding_stream_handle: StreamHandle[Stream[GroundingSignals]]
     provenance_stream_handle: StreamHandle[Stream[ExtendedProvenanceChain]]
 
     def __init__(self, stream_handle: StreamHandle[Stream[Program]]) -> None:
         self.input_a = stream_handle
-        grounding_group: StreamAddition[GroundingCanaries] = StreamAddition(ZSetAddition[Canary]())
-        grounding_stream: Stream[Stream[GroundingCanaries]] = Stream(grounding_group)
+        grounding_group: StreamAddition[GroundingSignals] = StreamAddition(ZSetAddition[Signal]())
+        grounding_stream: Stream[Stream[GroundingSignals]] = Stream(grounding_group)
 
         provenance_group: StreamAddition[ExtendedProvenanceChain] = StreamAddition(
             ZSetAddition[ExtendedProvenanceDirection]()
@@ -538,17 +584,20 @@ class LiftedLiftedDeriveExtendedProgramProvenance:
         self.grounding_stream_handle = StreamHandle(lambda: grounding_stream)
         self.provenance_stream_handle = StreamHandle(lambda: provenance_stream)
 
-    def output_grounding(self) -> Stream[Stream[GroundingCanaries]]:
+    def output_grounding(self) -> Stream[Stream[GroundingSignals]]:
         return self.grounding_stream_handle.get()
 
     def output_provenance(self) -> Stream[Stream[ExtendedProvenanceChain]]:
         return self.provenance_stream_handle.get()
 
+    def output_handle(self) -> StreamHandle[Stream[GroundingSignals]]:
+        return self.grounding_stream_handle
+
     def step(self) -> bool:
         output_timestamp = self.output_grounding().current_time() + 1
         latest_program_provenance = derive_extended_program_provenance(self.input_a.get()[output_timestamp].latest())
 
-        new_grounding_stream = Stream(ZSetAddition[Canary]())
+        new_grounding_stream = Stream(ZSetAddition[Signal]())
         new_grounding_stream.send(latest_program_provenance[0])
 
         new_provenance_stream = Stream(ZSetAddition[ExtendedProvenanceDirection]())
@@ -563,11 +612,19 @@ class LiftedLiftedDeriveExtendedProgramProvenance:
 AtomWithSourceRewriteAndExtendedProvenance = Tuple[Provenance, Atom | None, Rewrite, ColumnReference]
 
 
+def index() -> None:
+    return None
+
+
+def jorder() -> None:
+    return None
+
+
 class IncrementalDatalogWithIndexing(BinaryOperator[EDB, Program, EDB]):
     lift_intro_program: LiftedStreamIntroduction[Program]
     lift_lift_compute_index_schemas: LiftedLiftedComputeIndexSchemas
     lift_derive_program_provenance: LiftedDeriveProgramProvenance
-    lift_lift_grounding: StreamHandle[Stream[GroundingCanaries]]
+    lift_lift_grounding: StreamHandle[Stream[GroundingSignals]]
     lift_lift_provenance: StreamHandle[Stream[ExtendedProvenanceChain]]
 
     lift_intro_edb: LiftedStreamIntroduction[EDB]
@@ -582,7 +639,7 @@ class IncrementalDatalogWithIndexing(BinaryOperator[EDB, Program, EDB]):
     rewrite_product: DeltaLiftedDeltaLiftedJoin[
         AtomWithSourceRewriteAndProvenance, IndexedFact, ProvenanceIndexedRewrite
     ]
-    fresh_facts: DeltaLiftedDeltaLiftedJoin[ProvenanceIndexedRewrite, Canary, Fact]
+    fresh_facts: DeltaLiftedDeltaLiftedJoin[ProvenanceIndexedRewrite, Signal, Fact]
     indexed_fresh_facts: DeltaLiftedDeltaLiftedJoin[Fact, ExtendedProvenanceDirection, IndexedFact]
 
     distinct_facts: DeltaLiftedDeltaLiftedDistinct[Fact]
@@ -671,11 +728,16 @@ class IncrementalDatalogWithIndexing(BinaryOperator[EDB, Program, EDB]):
         self.output_stream_handle = self.lift_elim_fresh_facts.output_handle()
 
     def step(self) -> bool:
-        self.lift_intro_edb.step()
-        self.lift_rewrites.step()
-        self.lift_intro_program.step()
-        self.lift_lift_derive_program_provenance.step()
-        self.lift_lift_compute_index_schemas.step()
+        step_until_timestamp(self.lift_intro_edb, self.lift_intro_edb.input_a().current_time())
+        step_until_timestamp(self.lift_rewrites, self.lift_rewrites.input_a().current_time())
+        step_until_timestamp(self.lift_intro_program, self.lift_intro_program.input_a().current_time())
+        step_until_timestamp(
+            self.lift_lift_derive_program_provenance,
+            self.lift_lift_derive_program_provenance.input_a.get().current_time(),
+        )
+        step_until_timestamp(
+            self.lift_lift_compute_index_schemas, self.lift_lift_compute_index_schemas.input_a().current_time()
+        )
 
         while True:
             self.iteration.step()
