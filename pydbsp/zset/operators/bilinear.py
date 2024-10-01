@@ -7,6 +7,8 @@ from pydbsp.stream import (
     Stream,
     StreamAddition,
     StreamHandle,
+    TimeTrackingLift2,
+    step_until_false_and_return,
     step_until_timestamp_and_return,
 )
 from pydbsp.stream.operators.linear import Delay, Integrate, LiftedDelay, LiftedIntegrate
@@ -27,6 +29,94 @@ class LiftedJoin(Lift2[ZSet[T], ZSet[R], ZSet[S]]):
         f: PostJoinProjection[T, R, S],
     ):
         super().__init__(stream_a, stream_b, lambda x, y: join(x, y, p, f), None)
+
+
+class LiftedTimeTrackingJoin(TimeTrackingLift2[ZSet[T], ZSet[R], ZSet[S]]):
+    def __init__(
+        self,
+        stream_a: Optional[StreamHandle[ZSet[T]]],
+        stream_b: Optional[StreamHandle[ZSet[R]]],
+        p: JoinCmp[T, R],
+        f: PostJoinProjection[T, R, S],
+    ):
+        super().__init__(stream_a, stream_b, lambda x, y: join(x, y, p, f), None)
+
+
+class LiftedLiftedTimeTrackingJoin(TimeTrackingLift2[Stream[ZSet[T]], Stream[ZSet[R]], Stream[ZSet[S]]]):
+    def __init__(
+        self,
+        stream_a: Optional[StreamHandle[Stream[ZSet[T]]]],
+        stream_b: Optional[StreamHandle[Stream[ZSet[R]]]],
+        p: JoinCmp[T, R],
+        f: PostJoinProjection[T, R, S],
+    ):
+        super().__init__(
+            stream_a,
+            stream_b,
+            lambda x, y: step_until_false_and_return(
+                LiftedTimeTrackingJoin(StreamHandle(lambda: x), StreamHandle(lambda: y), p, f),
+            ),
+            None,
+        )
+
+
+class DynamicLiftedLiftedTimeTrackingJoin(BinaryOperator[Stream[ZSet[T]], Stream[ZSet[R]], Stream[ZSet[S]]]):
+    p: JoinCmp[T, R]
+    f: PostJoinProjection[T, R, S]
+    integrated_stream_a: Integrate[Stream[ZSet[T]]]
+    integrated_stream_b: Integrate[Stream[ZSet[R]]]
+    join: LiftedLiftedTimeTrackingJoin[T, R, S]
+
+    output_stream: Stream[Stream[ZSet[S]]]
+
+    def set_input_a(self, stream_handle_a: StreamHandle[Stream[ZSet[T]]]) -> None:
+        self.input_stream_handle_a = stream_handle_a
+        self.integrated_stream_a = Integrate(self.input_stream_handle_a)
+
+    def set_input_b(self, stream_handle_b: StreamHandle[Stream[ZSet[R]]]) -> None:
+        self.input_stream_handle_b = stream_handle_b
+        self.integrated_stream_b = Integrate(self.input_stream_handle_b)
+
+        self.join = LiftedLiftedJoin(
+            self.integrated_stream_a.output_handle(),
+            self.integrated_stream_b.output_handle(),
+            self.p,
+            self.f,
+        )
+
+    def __init__(
+        self,
+        diff_stream_a: Optional[StreamHandle[Stream[ZSet[T]]]],
+        diff_stream_b: Optional[StreamHandle[Stream[ZSet[R]]]],
+        p: JoinCmp[T, R],
+        f: PostJoinProjection[T, R, S],
+    ):
+        self.p = p
+        self.f = f
+        inner_group: ZSetAddition[S] = ZSetAddition()
+        group: StreamAddition[ZSet[S]] = StreamAddition(inner_group)  # type: ignore
+
+        self.output_stream = Stream(group)
+        self.output_stream_handle = StreamHandle(lambda: self.output_stream)
+
+        if diff_stream_a is not None:
+            self.set_input_a(diff_stream_a)
+
+        if diff_stream_b is not None:
+            self.set_input_b(diff_stream_b)
+
+    def output(self) -> Stream[Stream[ZSet[S]]]:
+        return self.output_stream
+
+    def step(self) -> bool:
+        self.integrated_stream_a.step()
+        self.integrated_stream_b.step()
+
+        self.join.step()
+
+        self.output_stream.send(self.join.output().latest())
+
+        return True
 
 
 class LiftedLiftedJoin(

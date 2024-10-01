@@ -115,6 +115,17 @@ def step_until_timestamp[T](operator: Operator[T], timestamp: int) -> None:
         current_timestamp = operator.output_handle().get().current_time()
 
 
+def step_until_false[T](operator: Operator[T]) -> None:
+    while operator.step():
+        pass
+
+
+def step_until_false_and_return[T](operator: Operator[T]) -> Stream[T]:
+    step_until_false(operator)
+
+    return operator.output_handle().get()
+
+
 def step_until_timestamp_and_return[T](operator: Operator[T], timestamp: int) -> Stream[T]:
     step_until_timestamp(operator, timestamp)
 
@@ -322,7 +333,7 @@ class TimeTrackingLift2(BinaryOperator[T, R, S]):
         return new_a or new_b
 
 
-class TimeTrackingGroupAdd(TimeTrackingLift2[T, T, T]):
+class LiftedTimeTrackingGroupAdd(TimeTrackingLift2[T, T, T]):
     def __init__(self, stream_a: StreamHandle[T], stream_b: Optional[StreamHandle[T]]):
         super().__init__(
             stream_a,
@@ -389,3 +400,14 @@ class StreamAddition(AbelianGroupOperation[Stream[T]]):
         identity_stream = Stream(self.group)
 
         return identity_stream
+
+
+class StreamAdditionWithTimeTracking[T](StreamAddition[T]):
+    def add(self, a: Stream[T], b: Stream[T]) -> Stream[T]:
+        """Adds two streams element-wise."""
+        handle_a = StreamHandle(lambda: a)
+        handle_b = StreamHandle(lambda: b)
+
+        time_tracking_lifted_group_add = LiftedTimeTrackingGroupAdd(handle_a, handle_b)
+
+        return step_until_false_and_return(time_tracking_lifted_group_add)

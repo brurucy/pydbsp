@@ -4,10 +4,10 @@ from pydbsp.stream import (
     BinaryOperator,
     Lift1,
     LiftedGroupAdd,
+    LiftedTimeTrackingGroupAdd,
     Stream,
     StreamAddition,
     StreamHandle,
-    TimeTrackingGroupAdd,
     step_until_timestamp,
     step_until_timestamp_and_return,
 )
@@ -15,9 +15,10 @@ from pydbsp.stream.operators.linear import (
     Delay,
     LiftedStreamElimination,
     LiftedStreamIntroduction,
+    LiftedTimeTrackingStreamIntroduction,
 )
 from pydbsp.zset import ZSet, ZSetAddition
-from pydbsp.zset.operators.bilinear import DeltaLiftedDeltaLiftedJoin
+from pydbsp.zset.operators.bilinear import DeltaLiftedDeltaLiftedJoin, DynamicLiftedLiftedTimeTrackingJoin
 from pydbsp.zset.operators.unary import DeltaLiftedDeltaLiftedDistinct
 
 Constant = Any
@@ -320,7 +321,7 @@ class IncrementalDatalog(BinaryOperator[EDB, Program, EDB]):
 
     def set_input_a(self, stream_handle_a: StreamHandle[EDB]) -> None:
         self.input_stream_handle_a = stream_handle_a
-        self.lifted_intro_edb = LiftedStreamIntroduction(self.input_stream_handle_a)
+        self.lifted_intro_edb = LiftedTimeTrackingStreamIntroduction(self.input_stream_handle_a)
 
         provenance_indexed_rewrite_group: ZSetAddition[ProvenanceIndexedRewrite] = ZSetAddition()
         rewrite_stream: Stream[ZSet[ProvenanceIndexedRewrite]] = Stream(provenance_indexed_rewrite_group)
@@ -329,22 +330,22 @@ class IncrementalDatalog(BinaryOperator[EDB, Program, EDB]):
         empty_rewrite_set.inner[(0, RewriteMonoid().identity())] = 1
 
         self.rewrites.get().send(empty_rewrite_set)
-        self.lifted_rewrites = LiftedStreamIntroduction(self.rewrites)
+        self.lifted_rewrites = LiftedTimeTrackingStreamIntroduction(self.rewrites)
 
     def set_input_b(self, stream_handle_b: StreamHandle[Program]) -> None:
         self.input_stream_handle_b = stream_handle_b
 
         self.lifted_sig = LiftedSig(self.input_stream_handle_b)
-        self.lifted_intro_lifted_sig = LiftedStreamIntroduction(self.lifted_sig.output_handle())
+        self.lifted_intro_lifted_sig = LiftedTimeTrackingStreamIntroduction(self.lifted_sig.output_handle())
 
         self.lifted_dir = LiftedDir(self.input_stream_handle_b)
-        self.lifted_intro_lifted_dir = LiftedStreamIntroduction(self.lifted_dir.output_handle())
+        self.lifted_intro_lifted_dir = LiftedTimeTrackingStreamIntroduction(self.lifted_dir.output_handle())
 
-        self.gatekeep = DeltaLiftedDeltaLiftedJoin(
+        self.gatekeep = DynamicLiftedLiftedTimeTrackingJoin(
             None, None, lambda left, right: left[0] == right[0], lambda left, right: (right[1], right[2], left[1])
         )
 
-        self.product = DeltaLiftedDeltaLiftedJoin(
+        self.product = DynamicLiftedLiftedTimeTrackingJoin(
             self.gatekeep.output_handle(),
             None,
             lambda left, right: left[1] is None
@@ -352,19 +353,19 @@ class IncrementalDatalog(BinaryOperator[EDB, Program, EDB]):
             rewrite_product_projection,
         )
 
-        self.ground = DeltaLiftedDeltaLiftedJoin(
+        self.ground = DynamicLiftedLiftedTimeTrackingJoin(
             self.product.output_handle(),
             self.lifted_intro_lifted_sig.output_handle(),
             lambda left, right: left[0] == right[0],
             lambda left, right: left[1].apply(right[1]),
         )
 
-        self.fresh_facts_plus_edb = TimeTrackingGroupAdd(
+        self.fresh_facts_plus_edb = LiftedTimeTrackingGroupAdd(
             self.ground.output_handle(), self.lifted_intro_edb.output_handle()
         )
         self.distinct_facts = DeltaLiftedDeltaLiftedDistinct(self.fresh_facts_plus_edb.output_handle())
 
-        self.rewrite_product_plus_rewrites = TimeTrackingGroupAdd(
+        self.rewrite_product_plus_rewrites = LiftedTimeTrackingGroupAdd(
             self.product.output_handle(), self.lifted_rewrites.output_handle()
         )
         self.distinct_rewrites = DeltaLiftedDeltaLiftedDistinct(self.rewrite_product_plus_rewrites.output_handle())

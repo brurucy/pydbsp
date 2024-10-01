@@ -6,6 +6,7 @@ from pydbsp.stream import (
     LiftedGroupNegate,
     Stream,
     StreamAddition,
+    StreamAdditionWithTimeTracking,
     StreamHandle,
     UnaryOperator,
     step_until_timestamp_and_return,
@@ -140,6 +141,21 @@ class LiftedStreamIntroduction(Lift1[T, Stream[T]]):
             stream,
             lambda x: stream_introduction(x, stream.get().group()),
             StreamAddition(stream.get().group()),  # type: ignore
+        )
+
+
+class LiftedTimeTrackingStreamIntroduction(Lift1[T, Stream[T]]):
+    """
+    Lifts the stream_introduction function to work on streams.
+    """
+
+    def __init__(self, stream: StreamHandle[T]) -> None:
+        group = stream.get().group()
+
+        super().__init__(
+            stream,
+            lambda x: stream_introduction(x, group),
+            StreamAdditionWithTimeTracking(group),  # type: ignore
         )
 
 
