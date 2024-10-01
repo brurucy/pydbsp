@@ -276,6 +276,62 @@ class Lift2(BinaryOperator[T, R, S]):
         return True
 
 
+class TimeTrackingLift2(BinaryOperator[T, R, S]):
+    """Lifts a binary function to operate on two streams where data arrives at
+    different times."""
+
+    previous_timestamp_a: int
+    prevous_timestamp_b: int
+
+    def __init__(
+        self,
+        stream_a: Optional[StreamHandle[T]],
+        stream_b: Optional[StreamHandle[R]],
+        f2: F2[T, R, S],
+        output_stream_group: Optional[AbelianGroupOperation[S]],
+    ) -> None:
+        self.f2 = f2
+        self.previous_timestamp_a = -1
+        self.previous_timestamp_b = -1
+
+        super().__init__(stream_a, stream_b, output_stream_group)
+
+    def step(self) -> bool:
+        """Applies the lifted function to the most recently arrived elements in both input streams."""
+        current_timestamp_a = self.input_a().current_time()
+        a = self.input_a().group().identity()
+        new_a = False
+        if current_timestamp_a > self.previous_timestamp_a:
+            new_a = True
+            current_timestamp_a = self.previous_timestamp_a + 1
+            a = self.input_a()[current_timestamp_a]
+            self.previous_timestamp_a = current_timestamp_a
+
+        current_timestamp_b = self.input_b().current_time()
+        b = self.input_b().group().identity()
+        new_b = False
+        if current_timestamp_b > self.previous_timestamp_b:
+            new_b = True
+            current_timestamp_b = self.previous_timestamp_b + 1
+            b = self.input_b()[current_timestamp_b]
+            self.previous_timestamp_b = current_timestamp_b
+
+        application = self.f2(a, b)
+        self.output().send(application)
+
+        return new_a or new_b
+
+
+class TimeTrackingGroupAdd(TimeTrackingLift2[T, T, T]):
+    def __init__(self, stream_a: StreamHandle[T], stream_b: Optional[StreamHandle[T]]):
+        super().__init__(
+            stream_a,
+            stream_b,
+            lambda x, y: stream_a.get().group().add(x, y),
+            None,
+        )
+
+
 class LiftedGroupAdd(Lift2[T, T, T]):
     def __init__(self, stream_a: StreamHandle[T], stream_b: Optional[StreamHandle[T]]):
         super().__init__(

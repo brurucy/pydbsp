@@ -7,6 +7,7 @@ from pydbsp.stream import (
     Stream,
     StreamAddition,
     StreamHandle,
+    TimeTrackingGroupAdd,
     step_until_timestamp,
     step_until_timestamp_and_return,
 )
@@ -358,10 +359,12 @@ class IncrementalDatalog(BinaryOperator[EDB, Program, EDB]):
             lambda left, right: left[1].apply(right[1]),
         )
 
-        self.fresh_facts_plus_edb = LiftedGroupAdd(self.ground.output_handle(), self.lifted_intro_edb.output_handle())
+        self.fresh_facts_plus_edb = TimeTrackingGroupAdd(
+            self.ground.output_handle(), self.lifted_intro_edb.output_handle()
+        )
         self.distinct_facts = DeltaLiftedDeltaLiftedDistinct(self.fresh_facts_plus_edb.output_handle())
 
-        self.rewrite_product_plus_rewrites = LiftedGroupAdd(
+        self.rewrite_product_plus_rewrites = TimeTrackingGroupAdd(
             self.product.output_handle(), self.lifted_rewrites.output_handle()
         )
         self.distinct_rewrites = DeltaLiftedDeltaLiftedDistinct(self.rewrite_product_plus_rewrites.output_handle())
@@ -388,10 +391,16 @@ class IncrementalDatalog(BinaryOperator[EDB, Program, EDB]):
             self.product.step()
             self.ground.step()
             self.fresh_facts_plus_edb.step()
+            ia = self.fresh_facts_plus_edb.input_a()
+            ib = self.fresh_facts_plus_edb.input_b()
+            o = self.fresh_facts_plus_edb.output()
+            print(f"Left: {ia}\nRight: {ib}\n  Left ts: {ia.current_time()} - Right ts: {ib.current_time()}\nOut: {o}")
+
             self.distinct_facts.step()
             new_facts = self.distinct_facts.output().latest().latest()
 
             self.rewrite_product_plus_rewrites.step()
+
             self.distinct_rewrites.step()
             new_rewrites = self.distinct_rewrites.output().latest().latest()
 
