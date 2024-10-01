@@ -25,6 +25,48 @@ def create_test_edb(n: int) -> EDB:
     return test_edb
 
 
+def from_fact_into_zset(fact: Fact, weight: int) -> EDB:
+    edb: EDB = ZSetAddition().identity()
+    edb.inner[fact] = weight
+
+    return edb
+
+
+def from_rule_into_zset(rule: Rule, weight: int) -> Program:
+    program: Program = ZSetAddition().identity()
+    program.inner[rule] = weight
+
+    return program
+
+
+def test_reachability_inc() -> None:
+    program_group: ZSetAddition[Rule] = ZSetAddition()
+    program_stream = Stream(program_group)
+    program_stream_h = StreamHandle(lambda: program_stream)
+
+    # T(X, Y) <- E(X, Y)
+    seed: Rule = (("T", (Variable("X"), Variable("Y"))), ("E", (Variable("X"), Variable("Y"))))
+    reachability: Program = program_group.identity()
+    reachability.inner[seed] = 1
+
+    program_stream.send(reachability)
+
+    edb_group: ZSetAddition[Fact] = ZSetAddition()
+    edb_stream = Stream(edb_group)
+    edb_stream_h = StreamHandle(lambda: edb_stream)
+
+    incremental_datalog = IncrementalDatalogWithIndexing(edb_stream_h, program_stream_h, None)
+
+    edb_stream.send(from_fact_into_zset(("E", (0, 1)), 1))
+    incremental_datalog.step()
+    latest = (incremental_datalog.output())[1]
+    assert latest == from_fact_into_zset(("T", (0, 1)), 1)
+
+    edb_stream.send(from_fact_into_zset(("E", (1, 2)), 1))
+    incremental_datalog.step()
+    latest = stream_elimination(incremental_datalog.output())
+    assert latest == from_fact_into_zset(("T", (2, 3)), 1)
+
 def test_reachability() -> None:
     program_group: ZSetAddition[Rule] = ZSetAddition()
     program_stream = Stream(program_group)

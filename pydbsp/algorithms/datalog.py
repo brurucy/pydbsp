@@ -13,13 +13,14 @@ from pydbsp.stream import (
 )
 from pydbsp.stream.operators.linear import (
     Delay,
+    LiftedDelay,
     LiftedStreamElimination,
     LiftedStreamIntroduction,
     LiftedTimeTrackingStreamIntroduction,
 )
 from pydbsp.zset import ZSet, ZSetAddition
 from pydbsp.zset.operators.bilinear import DeltaLiftedDeltaLiftedJoin, DynamicLiftedLiftedTimeTrackingJoin
-from pydbsp.zset.operators.unary import DeltaLiftedDeltaLiftedDistinct
+from pydbsp.zset.operators.unary import DeltaLiftedDeltaLiftedDistinct, DeltaLiftedDeltaLiftedTimeTrackingDistinct
 
 Constant = Any
 _Variable: TypeAlias = str
@@ -288,21 +289,23 @@ provenance_indexed_rewrite_identity: ProvenanceChain = ZSetAddition().identity()
 class IncrementalDatalog(BinaryOperator[EDB, Program, EDB]):
     # Program transformations
     lifted_sig: LiftedSig
-    lifted_intro_lifted_sig: LiftedStreamIntroduction[GroundingSignals]
+    lifted_intro_lifted_sig: LiftedTimeTrackingStreamIntroduction[GroundingSignals]
     lifted_dir: LiftedDir
-    lifted_intro_lifted_dir: LiftedStreamIntroduction[ProvenanceChain]
+    lifted_intro_lifted_dir: LiftedTimeTrackingStreamIntroduction[ProvenanceChain]
 
     # EDB transformations
-    lifted_intro_edb: LiftedStreamIntroduction[EDB]
+    lifted_intro_edb: LiftedTimeTrackingStreamIntroduction[EDB]
 
     # Rewrite transformations
     rewrites: StreamHandle[ZSet[ProvenanceIndexedRewrite]]
-    lifted_rewrites: LiftedStreamIntroduction[ZSet[ProvenanceIndexedRewrite]]
+    lifted_rewrites: LiftedTimeTrackingStreamIntroduction[ZSet[ProvenanceIndexedRewrite]]
 
     # Joins
-    gatekeep: DeltaLiftedDeltaLiftedJoin[ProvenanceIndexedRewrite, Direction, AtomWithSourceRewriteAndProvenance]
-    product: DeltaLiftedDeltaLiftedJoin[AtomWithSourceRewriteAndProvenance, Fact, ProvenanceIndexedRewrite]
-    ground: DeltaLiftedDeltaLiftedJoin[ProvenanceIndexedRewrite, Signal, Fact]
+    gatekeep: DynamicLiftedLiftedTimeTrackingJoin[
+        ProvenanceIndexedRewrite, Direction, AtomWithSourceRewriteAndProvenance
+    ]
+    product: DynamicLiftedLiftedTimeTrackingJoin[AtomWithSourceRewriteAndProvenance, Fact, ProvenanceIndexedRewrite]
+    ground: DynamicLiftedLiftedTimeTrackingJoin[ProvenanceIndexedRewrite, Signal, Fact]
 
     # Distincts
     distinct_rewrites: DeltaLiftedDeltaLiftedDistinct[ProvenanceIndexedRewrite]
@@ -313,8 +316,8 @@ class IncrementalDatalog(BinaryOperator[EDB, Program, EDB]):
     delay_distinct_rewrites: Delay[Stream[ZSet[ProvenanceIndexedRewrite]]]
 
     # Pluses
-    fresh_facts_plus_edb: LiftedGroupAdd[Stream[EDB]]
-    rewrite_product_plus_rewrites: LiftedGroupAdd[Stream[ZSet[ProvenanceIndexedRewrite]]]
+    fresh_facts_plus_edb: LiftedTimeTrackingGroupAdd[Stream[EDB]]
+    rewrite_product_plus_rewrites: LiftedTimeTrackingGroupAdd[Stream[ZSet[ProvenanceIndexedRewrite]]]
 
     # Stream elimination
     lifted_elim_fresh_facts: LiftedStreamElimination[EDB]
@@ -388,27 +391,52 @@ class IncrementalDatalog(BinaryOperator[EDB, Program, EDB]):
         step_until_timestamp(self.lifted_intro_lifted_dir, self.lifted_intro_lifted_dir.input_a().current_time())
 
         while True:
+            print("===ITER START===")
             self.gatekeep.step()
+            # print(
+            #     f"---Gatekeep---\n\tLeft: {self.gatekeep.input_a()}\n\tRight: {self.gatekeep.input_b()}\n\tOut: {self.gatekeep.output()}"
+            # )
+
             self.product.step()
+            # print(
+            #     f"---Product---\n\tLeft: {self.product.input_a()}\n\tRight: {self.product.input_b()}\n\tOut: {self.product.output()}"
+            # )
+
             self.ground.step()
+            # print(
+            #     f"---Ground---\n\tLeft: {self.ground.input_a()}\n\tRight: {self.ground.input_b()}\n\tOut: {self.ground.output()}"
+            # )
+
             self.fresh_facts_plus_edb.step()
+
             ia = self.fresh_facts_plus_edb.input_a()
             ib = self.fresh_facts_plus_edb.input_b()
             o = self.fresh_facts_plus_edb.output()
-            print(f"Left: {ia}\nRight: {ib}\n  Left ts: {ia.current_time()} - Right ts: {ib.current_time()}\nOut: {o}")
+            # print(
+            #     f"---Facts + EDB---\n\tLeft: {ia}\n\tRight: {ib}\n\tLeft ts: {ia.current_time()} - Right ts: {ib.current_time()}\n\tOut: {o}"
+            # )
 
             self.distinct_facts.step()
+            print(f"---New Fax---\n\tLeft: {self.distinct_facts.input_a()}\n\tOut: {self.distinct_facts.output()}")
+
             new_facts = self.distinct_facts.output().latest().latest()
 
             self.rewrite_product_plus_rewrites.step()
+            # print(
+            #     f"---Rewrite P + Rewrites---\n\tLeft: {self.rewrite_product_plus_rewrites.input_a()}\n\tRight: {self.rewrite_product_plus_rewrites.input_b()}\n\tLeft ts: {self.rewrite_product_plus_rewrites.input_a().current_time()} - Right ts: {self.rewrite_product_plus_rewrites.input_b().current_time()}\n\tOut: {self.rewrite_product_plus_rewrites.output()}"
+            # )
 
             self.distinct_rewrites.step()
             new_rewrites = self.distinct_rewrites.output().latest().latest()
 
             if new_facts == edb_identity and new_rewrites == provenance_indexed_rewrite_identity:
+                print("===FIXPOINT REACHED===")
                 break
 
             self.delay_distinct_facts.step()
+            print(
+                f"---Delay Fax---\n\tLeft: {self.delay_distinct_facts.input_a()}\n\tOut: {self.delay_distinct_facts.output()}"
+            )
             self.delay_distinct_rewrites.step()
 
         step_until_timestamp(self.lifted_elim_fresh_facts, self.lifted_elim_fresh_facts.input_a().current_time())

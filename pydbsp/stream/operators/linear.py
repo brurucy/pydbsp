@@ -33,7 +33,8 @@ class Delay(UnaryOperator[T, T]):
         delayed_value = self.input_a()[output_timestamp]
 
         self.output().send(delayed_value)
-        if output_timestamp == -1:
+        current_input_timestamp = self.input_a().current_time()
+        if output_timestamp == -1 or current_input_timestamp > output_timestamp:
             return self.step()
 
         return True
