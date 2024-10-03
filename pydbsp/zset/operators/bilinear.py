@@ -7,9 +7,7 @@ from pydbsp.stream import (
     Stream,
     StreamAddition,
     StreamHandle,
-    TimeTrackingLift2,
-    step_until_false_and_return,
-    step_until_timestamp_and_return,
+    step_until_fixpoint_and_return,
 )
 from pydbsp.stream.operators.linear import Delay, Integrate, LiftedDelay, LiftedIntegrate
 from pydbsp.zset import ZSet, ZSetAddition
@@ -31,18 +29,17 @@ class LiftedJoin(Lift2[ZSet[T], ZSet[R], ZSet[S]]):
         super().__init__(stream_a, stream_b, lambda x, y: join(x, y, p, f), None)
 
 
-class LiftedTimeTrackingJoin(TimeTrackingLift2[ZSet[T], ZSet[R], ZSet[S]]):
-    def __init__(
-        self,
-        stream_a: Optional[StreamHandle[ZSet[T]]],
-        stream_b: Optional[StreamHandle[ZSet[R]]],
-        p: JoinCmp[T, R],
-        f: PostJoinProjection[T, R, S],
-    ):
-        super().__init__(stream_a, stream_b, lambda x, y: join(x, y, p, f), None)
+class LiftedLiftedJoin(
+    Lift2[
+        Stream[ZSet[T]],
+        Stream[ZSet[R]],
+        Stream[ZSet[S]],
+    ]
+):
+    """
+    Computes the Z-Set join between two streams element-wise.
+    """
 
-
-class LiftedLiftedTimeTrackingJoin(TimeTrackingLift2[Stream[ZSet[T]], Stream[ZSet[R]], Stream[ZSet[S]]]):
     def __init__(
         self,
         stream_a: Optional[StreamHandle[Stream[ZSet[T]]]],
@@ -53,19 +50,19 @@ class LiftedLiftedTimeTrackingJoin(TimeTrackingLift2[Stream[ZSet[T]], Stream[ZSe
         super().__init__(
             stream_a,
             stream_b,
-            lambda x, y: step_until_false_and_return(
-                LiftedTimeTrackingJoin(StreamHandle(lambda: x), StreamHandle(lambda: y), p, f),
+            lambda x, y: step_until_fixpoint_and_return(
+                LiftedJoin(StreamHandle(lambda: x), StreamHandle(lambda: y), p, f)
             ),
             None,
         )
 
 
-class DynamicLiftedLiftedTimeTrackingJoin(BinaryOperator[Stream[ZSet[T]], Stream[ZSet[R]], Stream[ZSet[S]]]):
+class DynamicLiftedLiftedJoin(BinaryOperator[Stream[ZSet[T]], Stream[ZSet[R]], Stream[ZSet[S]]]):
     p: JoinCmp[T, R]
     f: PostJoinProjection[T, R, S]
     integrated_stream_a: Integrate[Stream[ZSet[T]]]
     integrated_stream_b: Integrate[Stream[ZSet[R]]]
-    join: LiftedLiftedTimeTrackingJoin[T, R, S]
+    join: LiftedLiftedJoin[T, R, S]
 
     output_stream: Stream[Stream[ZSet[S]]]
 
@@ -109,43 +106,14 @@ class DynamicLiftedLiftedTimeTrackingJoin(BinaryOperator[Stream[ZSet[T]], Stream
         return self.output_stream
 
     def step(self) -> bool:
-        self.integrated_stream_a.step()
-        self.integrated_stream_b.step()
+        fixedpoint_integrated_stream_a = self.integrated_stream_a.step()
+        fixedpoint_integrated_stream_b = self.integrated_stream_b.step()
+        fixedpoint_join = self.join.step()
 
-        self.join.step()
+        if not fixedpoint_join:
+            self.output_stream.send(self.join.output().latest())
 
-        self.output_stream.send(self.join.output().latest())
-
-        return True
-
-
-class LiftedLiftedJoin(
-    Lift2[
-        Stream[ZSet[T]],
-        Stream[ZSet[R]],
-        Stream[ZSet[S]],
-    ]
-):
-    """
-    Computes the Z-Set join between two streams element-wise.
-    """
-
-    def __init__(
-        self,
-        stream_a: Optional[StreamHandle[Stream[ZSet[T]]]],
-        stream_b: Optional[StreamHandle[Stream[ZSet[R]]]],
-        p: JoinCmp[T, R],
-        f: PostJoinProjection[T, R, S],
-    ):
-        super().__init__(
-            stream_a,
-            stream_b,
-            lambda x, y: step_until_timestamp_and_return(
-                LiftedJoin(StreamHandle(lambda: x), StreamHandle(lambda: y), p, f),
-                max(x.current_time(), y.current_time()),
-            ),
-            None,
-        )
+        return fixedpoint_integrated_stream_a and fixedpoint_integrated_stream_b and fixedpoint_join
 
 
 class DeltaLiftedDeltaLiftedJoin(BinaryOperator[Stream[ZSet[T]], Stream[ZSet[R]], Stream[ZSet[S]]]):
@@ -253,27 +221,29 @@ class DeltaLiftedDeltaLiftedJoin(BinaryOperator[Stream[ZSet[T]], Stream[ZSet[R]]
         return self.output_stream
 
     def step(self) -> bool:
-        self.integrated_stream_a.step()
-        self.delayed_integrated_stream_a.step()
-        self.lift_integrated_stream_a.step()
-        self.integrated_lift_integrated_stream_a.step()
+        fixedpoint = [
+            self.integrated_stream_a.step(),
+            self.delayed_integrated_stream_a.step(),
+            self.lift_integrated_stream_a.step(),
+            self.integrated_lift_integrated_stream_a.step(),
+            self.integrated_stream_b.step(),
+            self.delayed_integrated_stream_b.step(),
+            self.lift_integrated_stream_b.step(),
+            self.integrated_lift_integrated_stream_b.step(),
+            self.lift_delayed_integrated_lift_integrated_stream_b.step(),
+            self.lift_delayed_lift_integrated_stream_b.step(),
+            self.join_1.step(),
+            self.join_2.step(),
+            self.join_3.step(),
+            self.join_4.step(),
+            self.sum_one.step(),
+            self.sum_two.step(),
+            self.sum_three.step(),
+        ]
 
-        self.integrated_stream_b.step()
-        self.delayed_integrated_stream_b.step()
-        self.lift_integrated_stream_b.step()
-        self.integrated_lift_integrated_stream_b.step()
-        self.lift_delayed_integrated_lift_integrated_stream_b.step()
-        self.lift_delayed_lift_integrated_stream_b.step()
+        if not fixedpoint[len(fixedpoint) - 1]:
+            self.output_stream.send(self.sum_three.output().latest())
 
-        self.join_1.step()
-        self.join_2.step()
-        self.join_3.step()
-        self.join_4.step()
+            return False
 
-        self.sum_one.step()
-        self.sum_two.step()
-        self.sum_three.step()
-
-        self.output_stream.send(self.sum_three.output().latest())
-
-        return True
+        return all(fixedpoint)

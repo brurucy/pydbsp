@@ -6,10 +6,9 @@ from pydbsp.stream import (
     LiftedGroupNegate,
     Stream,
     StreamAddition,
-    StreamAdditionWithTimeTracking,
     StreamHandle,
     UnaryOperator,
-    step_until_timestamp_and_return,
+    step_until_fixpoint_and_return,
 )
 from pydbsp.stream.functions.linear import stream_elimination, stream_introduction
 
@@ -29,13 +28,12 @@ class Delay(UnaryOperator[T, T]):
         Outputs the previous value from the input stream.
         """
         output_timestamp = self.output().current_time()
+        input_timestamp = self.input_a().current_time()
 
-        delayed_value = self.input_a()[output_timestamp]
+        if output_timestamp <= input_timestamp:
+            self.output().send(self.input_a()[output_timestamp])
 
-        self.output().send(delayed_value)
-        current_input_timestamp = self.input_a().current_time()
-        if output_timestamp == -1 or current_input_timestamp > output_timestamp:
-            return self.step()
+            return False
 
         return True
 
@@ -62,10 +60,11 @@ class Differentiate(UnaryOperator[T, T]):
         """
         Outputs the difference between the latest element from the input stream with the one before
         """
-        self.delayed_stream.step()
-        self.delayed_negated_stream.step()
+        delayed_stream_fixedpoint = self.delayed_stream.step()
+        delayed_negated_stream_fixedpoint = self.delayed_negated_stream.step()
+        differentiated_stream_fixedpoint = self.differentiation_stream.step()
 
-        return self.differentiation_stream.step()
+        return delayed_stream_fixedpoint and delayed_negated_stream_fixedpoint and differentiated_stream_fixedpoint
 
 
 class Integrate(UnaryOperator[T, T]):
@@ -88,9 +87,10 @@ class Integrate(UnaryOperator[T, T]):
         """
         Adds the latest element from the input stream to the running sum
         """
-        self.integration_stream.step()
+        delay_fixedpoint = self.delayed_stream.step()
+        integration_fixedpoint = self.integration_stream.step()
 
-        return self.delayed_stream.step()
+        return delay_fixedpoint and integration_fixedpoint
 
 
 class LiftedDelay(Lift1[Stream[T], Stream[T]]):
@@ -101,7 +101,7 @@ class LiftedDelay(Lift1[Stream[T], Stream[T]]):
     def __init__(self, stream: StreamHandle[Stream[T]]):
         super().__init__(
             stream,
-            lambda s: step_until_timestamp_and_return(Delay(StreamHandle(lambda: s)), s.current_time() + 1),
+            lambda s: step_until_fixpoint_and_return(Delay(StreamHandle(lambda: s))),
             None,
         )
 
@@ -114,7 +114,7 @@ class LiftedIntegrate(Lift1[Stream[T], Stream[T]]):
     def __init__(self, stream: StreamHandle[Stream[T]]):
         super().__init__(
             stream,
-            lambda s: step_until_timestamp_and_return(Integrate(StreamHandle(lambda: s)), s.current_time()),
+            lambda s: step_until_fixpoint_and_return(Integrate(StreamHandle(lambda: s))),
             None,
         )
 
@@ -127,7 +127,7 @@ class LiftedDifferentiate(Lift1[Stream[T], Stream[T]]):
     def __init__(self, stream: StreamHandle[Stream[T]]):
         super().__init__(
             stream,
-            lambda s: step_until_timestamp_and_return(Differentiate(StreamHandle(lambda: s)), s.current_time()),
+            lambda s: step_until_fixpoint_and_return(Differentiate(StreamHandle(lambda: s))),
             None,
         )
 
@@ -138,25 +138,12 @@ class LiftedStreamIntroduction(Lift1[T, Stream[T]]):
     """
 
     def __init__(self, stream: StreamHandle[T]) -> None:
-        super().__init__(
-            stream,
-            lambda x: stream_introduction(x, stream.get().group()),
-            StreamAddition(stream.get().group()),  # type: ignore
-        )
-
-
-class LiftedTimeTrackingStreamIntroduction(Lift1[T, Stream[T]]):
-    """
-    Lifts the stream_introduction function to work on streams.
-    """
-
-    def __init__(self, stream: StreamHandle[T]) -> None:
         group = stream.get().group()
 
         super().__init__(
             stream,
             lambda x: stream_introduction(x, group),
-            StreamAdditionWithTimeTracking(group),  # type: ignore
+            StreamAddition(group),
         )
 
 
