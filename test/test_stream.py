@@ -9,8 +9,8 @@ def test_stream() -> None:
     one = 1
     identity = group.identity()
 
-    assert s.timestamp == -1
-    assert s.inner == []
+    assert s.timestamp == 0
+    assert s.inner == [0]
     assert s.group() == group
 
     assert s.latest() == identity
@@ -18,9 +18,9 @@ def test_stream() -> None:
     s.send(one)
 
     assert s.latest() == one
-    assert s[0] == one
-    assert s[1] == identity
-    assert s[-1] == identity
+    assert s[1] == one
+    assert s[2] == identity
+    assert s[0] == identity
 
     s_prime = Stream(group)
     assert s != s_prime

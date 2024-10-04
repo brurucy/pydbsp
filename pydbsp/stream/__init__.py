@@ -18,14 +18,21 @@ class Stream(Generic[T]):
     timestamp: int
     inner: List[T]
     group_op: AbelianGroupOperation[T]
+    identity: bool
 
     def __init__(self, group_op: AbelianGroupOperation[T]) -> None:
         self.inner = []
         self.group_op = group_op
         self.timestamp = -1
+        self.identity = True
+        self.send(group_op.identity())
 
     def send(self, element: T) -> None:
         """Adds an element to the stream and increments the timestamp."""
+        id = self.group().identity()
+        if element != id:
+            self.identity = False
+
         self.inner.append(element)
         self.timestamp += 1
 
@@ -45,14 +52,25 @@ class Stream(Generic[T]):
 
     def __getitem__(self, timestamp: int) -> T:
         """Returns the element at the given timestamp."""
-        if timestamp <= self.current_time() and timestamp >= 0:
+        if timestamp < 0:
+            raise ValueError("Timestamp cannot be negative")
+
+        if timestamp <= self.current_time():
             return self.inner.__getitem__(timestamp)
 
-        return self.group().identity()
+        elif timestamp > self.current_time():
+            id = self.group().identity()
+            while timestamp > self.current_time():
+                self.send(id)
+
+        return self.__getitem__(timestamp)
 
     def latest(self) -> T:
         """Returns the most recent element."""
-        return self[self.current_time()]
+        return self.__getitem__(self.current_time())
+
+    def is_identity(self) -> bool:
+        return self.identity
 
     def __eq__(self, other: object) -> bool | NotImplementedType:
         """
@@ -61,22 +79,16 @@ class Stream(Generic[T]):
         if not isinstance(other, Stream):
             return NotImplemented
 
+        if self.is_identity() and other.is_identity():
+            return True
+
         cast(Stream[T], other)
 
         self_timestamp = self.current_time()
         other_timestamp = other.current_time()
 
         if self_timestamp != other_timestamp:
-            largest = max(self_timestamp, other_timestamp)
-
-            for timestamp in range(largest + 1):
-                self_val = self[timestamp]
-                other_val = other[timestamp]  # type: ignore
-
-                if self_val != other_val:
-                    return False
-
-            return True
+            return False
 
         return self.inner == other.inner  # type: ignore
 
@@ -142,17 +154,13 @@ class UnaryOperator(Operator[R], Protocol[T, R]):
     ) -> None:
         """Sets the input stream and initializes the output stream."""
         self.input_stream_handle = stream_handle
-        is_input_identity = isinstance(self.input_stream_handle.get(), IdentityStream)
 
         if output_stream_group is not None:
-            output = Stream(output_stream_group) if not is_input_identity else IdentityStream(output_stream_group)
+            output = Stream(output_stream_group)
 
             self.output_stream_handle = StreamHandle(lambda: output)
         else:
-            output = cast(
-                Stream[R],
-                Stream(self.input_a().group()) if not is_input_identity else IdentityStream(self.input_a().group()),
-            )
+            output = cast(Stream[R], Stream(self.input_a().group()))
 
             self.output_stream_handle = StreamHandle(lambda: output)
 
@@ -246,7 +254,7 @@ class Lift1(UnaryOperator[T, R]):
         """Applies the lifted function to the next element in the input stream."""
         output_timestamp = self.output().current_time()
         input_timestamp = self.input_a().current_time()
-        if output_timestamp < input_timestamp and not isinstance(self.input_a(), IdentityStream):
+        if output_timestamp < input_timestamp:
             self.output().send(self.f1(self.input_a()[output_timestamp + 1]))
 
             return False
@@ -261,9 +269,6 @@ class Lift2(BinaryOperator[T, R, S]):
     """Lifts a binary function to operate on two streams where data arrives at
     different times."""
 
-    previous_timestamp_a: int
-    prevous_timestamp_b: int
-
     def __init__(
         self,
         stream_a: Optional[StreamHandle[T]],
@@ -272,44 +277,28 @@ class Lift2(BinaryOperator[T, R, S]):
         output_stream_group: Optional[AbelianGroupOperation[S]],
     ) -> None:
         self.f2 = f2
-        self.previous_timestamp_a = -1
-        self.previous_timestamp_b = -1
 
         super().__init__(stream_a, stream_b, output_stream_group)
 
     def step(self) -> bool:
         """Applies the lifted function to the most recently arrived elements in both input streams."""
-        current_timestamp_a = self.input_a().current_time()
-        current_timestamp_b = self.input_b().current_time()
-        new_a = False
-        new_b = False
+        a_timestamp = self.input_a().current_time()
+        b_timestamp = self.input_b().current_time()
+        output_timestamp = self.output().current_time()
+        join = max(a_timestamp, b_timestamp)
+        fixedpoint = False
+        if output_timestamp == join:
+            fixedpoint = True
 
-        a_is_identity = isinstance(self.input_a(), IdentityStream)
-        b_is_identity = isinstance(self.input_b(), IdentityStream)
-        if a_is_identity and b_is_identity:
-            return True
+            return fixedpoint
 
-        if current_timestamp_a > self.previous_timestamp_a or a_is_identity:
-            new_a = True
+        a = self.input_a()[output_timestamp + 1]
+        b = self.input_b()[output_timestamp + 1]
 
-        if current_timestamp_b > self.previous_timestamp_b or b_is_identity:
-            new_b = True
+        application = self.f2(a, b)
+        self.output().send(application)
 
-        if new_a and new_b:
-            current_timestamp_a = self.previous_timestamp_a + 1 if not a_is_identity else self.previous_timestamp_a
-            a = self.input_a()[current_timestamp_a]
-            self.previous_timestamp_a = current_timestamp_a if not a_is_identity else self.previous_timestamp_a
-
-            current_timestamp_b = self.previous_timestamp_b + 1 if not b_is_identity else self.previous_timestamp_b
-            b = self.input_b()[current_timestamp_b]
-            self.previous_timestamp_b = current_timestamp_b if not b_is_identity else self.previous_timestamp_b
-
-            application = self.f2(a, b)
-            self.output().send(application)
-
-            return False
-
-        return True
+        return fixedpoint
 
 
 class LiftedGroupAdd(Lift2[T, T, T]):
@@ -325,25 +314,6 @@ class LiftedGroupAdd(Lift2[T, T, T]):
 class LiftedGroupNegate(Lift1[T, T]):
     def __init__(self, stream: StreamHandle[T]):
         super().__init__(stream, lambda x: stream.get().group().neg(x), None)
-
-
-class IdentityStream(Stream[T]):
-    def __getitem__(self, timestamp: int) -> T:
-        return self.group().identity()
-
-    def send(self, element: T) -> None:
-        raise ValueError("Cannot send to the identity stream")
-
-    def current_time(self) -> int:
-        return INFINITY
-
-    def __eq__(self, other: object) -> bool:
-        if not isinstance(other, Stream):
-            return NotImplemented
-        if isinstance(other, IdentityStream):
-            return True
-
-        return all(self[i] == other[i] for i in range(other.current_time() + 1))  # type: ignore
 
 
 class StreamAddition(AbelianGroupOperation[Stream[T]]):
@@ -376,10 +346,8 @@ class StreamAddition(AbelianGroupOperation[Stream[T]]):
 
     def identity(self) -> Stream[T]:
         """
-        Returns an identity stream for the addition operation that CANNOT have data streamed into it.
-
-        What you are most likely after is the empty stream, instantiated through the Stream constructor.
+        Returns an identity stream for the addition operation.
         """
-        identity_stream = IdentityStream(self.group)
+        identity_stream = Stream(self.group)
 
         return identity_stream

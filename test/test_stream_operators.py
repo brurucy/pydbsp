@@ -142,7 +142,20 @@ def test_delay_stream_of_streams() -> None:
     operator: Delay[Stream[int]] = Delay(s_handle)
 
     delayed_s = step_until_fixpoint_and_return(operator)
-    delayed_list = [[], [0, 1, 2, 3], [2, 3, 4, 5], [4, 5, 6, 7], [6, 7, 8, 9]]
+    delayed_list = [[0], [0], [0, 0, 1, 2, 3], [0, 2, 3, 4, 5], [0, 4, 5, 6, 7], [0, 6, 7, 8, 9]]
+
+    assert from_stream_of_streams_into_list_of_lists(delayed_s) == delayed_list
+    assert delayed_s.current_time() == s.current_time() + 1
+
+
+def test_delay_stream_of_streams_empty() -> None:
+    n = 0
+    s = create_stream_of_streams(n)
+    s_handle = StreamHandle(lambda: s)
+    operator: Delay[Stream[int]] = Delay(s_handle)
+
+    delayed_s = step_until_fixpoint_and_return(operator)
+    delayed_list = [[0], [0]]
 
     assert from_stream_of_streams_into_list_of_lists(delayed_s) == delayed_list
     assert delayed_s.current_time() == s.current_time() + 1
@@ -155,7 +168,20 @@ def test_lifted_delay() -> None:
     operator: LiftedDelay[int] = LiftedDelay(s_handle)
 
     delayed_s = step_until_fixpoint_and_return(operator)
-    delayed_list = [[0, 0, 1, 2, 3], [0, 2, 3, 4, 5], [0, 4, 5, 6, 7], [0, 6, 7, 8, 9]]
+    delayed_list = [[0], [0, 0, 0, 1, 2, 3], [0, 0, 2, 3, 4, 5], [0, 0, 4, 5, 6, 7], [0, 0, 6, 7, 8, 9]]
+
+    assert from_stream_of_streams_into_list_of_lists(delayed_s) == delayed_list
+    assert delayed_s.current_time() == s.current_time()
+
+
+def test_lifted_delay_empty() -> None:
+    n = 0
+    s = create_stream_of_streams(n)
+    s_handle = StreamHandle(lambda: s)
+    operator: LiftedDelay[int] = LiftedDelay(s_handle)
+
+    delayed_s = step_until_fixpoint_and_return(operator)
+    delayed_list = [[0]]
 
     assert from_stream_of_streams_into_list_of_lists(delayed_s) == delayed_list
     assert delayed_s.current_time() == s.current_time()
@@ -168,7 +194,7 @@ def test_integrate_stream_of_streams() -> None:
     operator: Integrate[Stream[int]] = Integrate(s_handle)
 
     integrated_s = step_until_fixpoint_and_return(operator)
-    integrated_list = [[0, 1, 2, 3], [2, 4, 6, 8], [6, 9, 12, 15], [12, 16, 20, 24]]
+    integrated_list = [[0, 0, 0, 0, 0], [0, 0, 1, 2, 3], [0, 2, 4, 6, 8], [0, 6, 9, 12, 15], [0, 12, 16, 20, 24]]
     assert from_stream_of_streams_into_list_of_lists(integrated_s) == integrated_list
     assert integrated_s.current_time() == s.current_time()
 
@@ -181,15 +207,17 @@ def test_lifted_integrate() -> None:
 
     integrated_s = step_until_fixpoint_and_return(operator)
     integrated_list = [
+        [0],
         [
+            0,
             0,
             1,
             3,
             6,
         ],
-        [2, 5, 9, 14],
-        [4, 9, 15, 22],
-        [6, 13, 21, 30],
+        [0, 2, 5, 9, 14],
+        [0, 4, 9, 15, 22],
+        [0, 6, 13, 21, 30],
     ]
     assert from_stream_of_streams_into_list_of_lists(integrated_s) == integrated_list
     assert integrated_s.current_time() == s.current_time()
@@ -202,7 +230,7 @@ def test_differentiate_stream_of_streams() -> None:
     operator: Differentiate[Stream[int]] = Differentiate(s_handle)
 
     diffed_s = step_until_fixpoint_and_return(operator)
-    diffed_list = [[0, 1, 2, 3], [2, 2, 2, 2], [2, 2, 2, 2], [2, 2, 2, 2]]
+    diffed_list = [[0], [0, 0, 1, 2, 3], [0, 2, 2, 2, 2], [0, 2, 2, 2, 2], [0, 2, 2, 2, 2]]
     assert from_stream_of_streams_into_list_of_lists(diffed_s) == diffed_list
     assert diffed_s.current_time() == s.current_time()
 
@@ -214,7 +242,7 @@ def test_lifted_differentiate() -> None:
     operator: LiftedDifferentiate[int] = LiftedDifferentiate(s_handle)
 
     diffed_s = step_until_fixpoint_and_return(operator)
-    diffed_list = [[0, 1, 1, 1], [2, 1, 1, 1], [4, 1, 1, 1], [6, 1, 1, 1]]
+    diffed_list = [[0], [0, 0, 1, 1, 1], [0, 2, 1, 1, 1], [0, 4, 1, 1, 1], [0, 6, 1, 1, 1]]
     assert from_stream_of_streams_into_list_of_lists(diffed_s) == diffed_list
     assert diffed_s.current_time() == s.current_time()
 

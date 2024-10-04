@@ -60,11 +60,11 @@ class Differentiate(UnaryOperator[T, T]):
         """
         Outputs the difference between the latest element from the input stream with the one before
         """
-        delayed_stream_fixedpoint = self.delayed_stream.step()
-        delayed_negated_stream_fixedpoint = self.delayed_negated_stream.step()
-        differentiated_stream_fixedpoint = self.differentiation_stream.step()
+        self.delayed_stream.step()
+        self.delayed_negated_stream.step()
+        self.differentiation_stream.step()
 
-        return delayed_stream_fixedpoint and delayed_negated_stream_fixedpoint and differentiated_stream_fixedpoint
+        return self.output().current_time() == self.input_a().current_time()
 
 
 class Integrate(UnaryOperator[T, T]):
@@ -87,10 +87,10 @@ class Integrate(UnaryOperator[T, T]):
         """
         Adds the latest element from the input stream to the running sum
         """
-        delay_fixedpoint = self.delayed_stream.step()
-        integration_fixedpoint = self.integration_stream.step()
+        self.delayed_stream.step()
+        self.integration_stream.step()
 
-        return delay_fixedpoint and integration_fixedpoint
+        return self.output().current_time() == self.input_a().current_time()
 
 
 class LiftedDelay(Lift1[Stream[T], Stream[T]]):

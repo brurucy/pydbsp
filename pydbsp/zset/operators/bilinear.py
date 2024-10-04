@@ -7,6 +7,7 @@ from pydbsp.stream import (
     Stream,
     StreamAddition,
     StreamHandle,
+    step_until_fixpoint,
     step_until_fixpoint_and_return,
 )
 from pydbsp.stream.operators.linear import Delay, Integrate, LiftedDelay, LiftedIntegrate
@@ -221,29 +222,30 @@ class DeltaLiftedDeltaLiftedJoin(BinaryOperator[Stream[ZSet[T]], Stream[ZSet[R]]
         return self.output_stream
 
     def step(self) -> bool:
-        fixedpoint = [
-            self.integrated_stream_a.step(),
-            self.delayed_integrated_stream_a.step(),
-            self.lift_integrated_stream_a.step(),
-            self.integrated_lift_integrated_stream_a.step(),
-            self.integrated_stream_b.step(),
-            self.delayed_integrated_stream_b.step(),
-            self.lift_integrated_stream_b.step(),
-            self.integrated_lift_integrated_stream_b.step(),
-            self.lift_delayed_integrated_lift_integrated_stream_b.step(),
-            self.lift_delayed_lift_integrated_stream_b.step(),
-            self.join_1.step(),
-            self.join_2.step(),
-            self.join_3.step(),
-            self.join_4.step(),
-            self.sum_one.step(),
-            self.sum_two.step(),
-            self.sum_three.step(),
-        ]
+        self.integrated_stream_a.step()
+        step_until_fixpoint(self.delayed_integrated_stream_a)
 
-        if not fixedpoint[len(fixedpoint) - 1]:
+        self.lift_integrated_stream_a.step()
+        self.integrated_lift_integrated_stream_a.step()
+        self.integrated_stream_b.step()
+        step_until_fixpoint(self.delayed_integrated_stream_b)
+        self.lift_integrated_stream_b.step()
+        self.integrated_lift_integrated_stream_b.step()
+        self.lift_delayed_integrated_lift_integrated_stream_b.step()
+        self.lift_delayed_lift_integrated_stream_b.step()
+        self.join_1.step()
+        self.join_2.step()
+        self.join_3.step()
+        self.join_4.step()
+
+        self.sum_one.step()
+        self.sum_two.step()
+
+        fixedpoint = self.sum_three.step()
+
+        if not fixedpoint:
             self.output_stream.send(self.sum_three.output().latest())
 
             return False
 
-        return all(fixedpoint)
+        return fixedpoint
