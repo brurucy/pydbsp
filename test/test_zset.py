@@ -1,12 +1,8 @@
-from typing import Tuple
-
+from pydbsp.algorithms.graph_reachability import Edge, GraphZSet
 from pydbsp.zset import ZSet, ZSetAddition
 from pydbsp.zset.functions.bilinear import join
 from pydbsp.zset.functions.binary import H
 from pydbsp.zset.functions.linear import project, select
-
-Edge = Tuple[int, int]
-GraphZSet = ZSet[Edge]
 
 
 def create_test_zset_graph(n: int) -> GraphZSet:

@@ -1,27 +1,23 @@
 from typing import List, Set, Tuple
 
+from pydbsp.algorithms.graph_reachability import Edge, GraphZSet, IncrementalGraphReachability
 from pydbsp.stream import (
-    LiftedGroupAdd,
     Stream,
     StreamAddition,
     StreamHandle,
-    UnaryOperator,
+    step_until_fixpoint,
     step_until_fixpoint_and_return,
 )
 from pydbsp.stream.functions.linear import stream_introduction
 from pydbsp.stream.operators.linear import (
-    LiftedDelay,
-    LiftedStreamElimination,
-    LiftedStreamIntroduction,
     stream_elimination,
 )
 from pydbsp.zset import ZSet, ZSetAddition
 from pydbsp.zset.operators.bilinear import DeltaLiftedDeltaLiftedJoin, LiftedJoin, LiftedLiftedJoin
 from pydbsp.zset.operators.linear import LiftedLiftedProject, LiftedLiftedSelect, LiftedProject, LiftedSelect
-from pydbsp.zset.operators.unary import DeltaLiftedDeltaLiftedDistinct
 
 from test.test_stream_operators import from_stream_into_list, from_stream_of_streams_into_list_of_lists
-from test.test_zset import Edge, GraphZSet, create_test_zset_graph
+from test.test_zset import create_test_zset_graph
 
 
 def regular_join[K, V1, V2](left: Set[Tuple[K, V1]], right: Set[Tuple[K, V2]]) -> List[Tuple[K, V1, V2]]:
@@ -70,8 +66,8 @@ def test_lifted_select() -> None:
     operator = LiftedSelect(s_handle, is_fst_even)
 
     selected_s = step_until_fixpoint_and_return(operator)
-
-    assert from_stream_into_list(selected_s) == [ZSet({}), ZSet({(0, 1): 1, (2, 3): 1})]
+    empty_zset = s.group().identity()
+    assert from_stream_into_list(selected_s) == [empty_zset, ZSet({(0, 1): 1, (2, 3): 1})]
 
 
 def test_lifted_lifted_select() -> None:
@@ -82,9 +78,10 @@ def test_lifted_lifted_select() -> None:
 
     selected_s = step_until_fixpoint_and_return(operator)
 
+    empty_zset = s.group().identity().group().identity()
     assert from_stream_of_streams_into_list_of_lists(selected_s) == [
-        [ZSet({})],
-        [ZSet({}), ZSet({(0, 1): 1, (2, 3): 1})],
+        [empty_zset],
+        [empty_zset, ZSet({(0, 1): 1, (2, 3): 1})],
     ]
 
 
@@ -100,7 +97,8 @@ def test_lifted_project() -> None:
 
     projected_s = step_until_fixpoint_and_return(operator)
 
-    assert from_stream_into_list(projected_s) == [ZSet({}), ZSet({0: 2, 1: 2})]
+    empty_zset = s.group().identity()
+    assert from_stream_into_list(projected_s) == [empty_zset, ZSet({0: 2, 1: 2})]
 
 
 def test_lifted_lifted_project() -> None:
@@ -111,7 +109,8 @@ def test_lifted_lifted_project() -> None:
 
     projected_s = step_until_fixpoint_and_return(operator)
 
-    assert from_stream_of_streams_into_list_of_lists(projected_s) == [[ZSet({})], [ZSet({}), ZSet({0: 2, 1: 2})]]
+    empty_zset = s.group().identity().group().identity()
+    assert from_stream_of_streams_into_list_of_lists(projected_s) == [[empty_zset], [empty_zset, ZSet({0: 2, 1: 2})]]
 
 
 def test_lifted_join() -> None:
@@ -124,7 +123,7 @@ def test_lifted_join() -> None:
 
     joined_s = step_until_fixpoint_and_return(operator)
 
-    assert from_stream_into_list(joined_s) == [ZSet({}), ZSet({(0, 2): 1, (1, 3): 1, (2, 4): 1})]
+    assert from_stream_into_list(joined_s) == [s.group().identity(), ZSet({(0, 2): 1, (1, 3): 1, (2, 4): 1})]
 
 
 def test_lifted_lifted_join() -> None:
@@ -137,9 +136,10 @@ def test_lifted_lifted_join() -> None:
 
     joined_s = step_until_fixpoint_and_return(operator)
 
+    empty_zset = s.group().identity().group().identity()
     assert from_stream_of_streams_into_list_of_lists(joined_s) == [
-        [ZSet({})],
-        [ZSet({}), ZSet({(0, 2): 1, (1, 3): 1, (2, 4): 1})],
+        [empty_zset],
+        [empty_zset, ZSet({(0, 2): 1, (1, 3): 1, (2, 4): 1})],
     ]
 
 
@@ -161,9 +161,7 @@ def test_lifted_lifted_delta_join() -> None:
     s_inner: List[Stream[GraphZSet]] = [
         stream_introduction(GraphZSet({edge: 1}), inner_group) for edge in [(0, 1), (1, 2), (2, 3), (3, 4)]
     ]
-    # (1, 2), (2, 3), (3, 4)
     s_a_inner: List[Stream[GraphZSet]] = s_inner[1:]
-    # (0, 1)
     s_b_inner = [s_inner[0], from_edges_into_zset_stream([(0, 2)]), from_edges_into_zset_stream([(0, 3)])]
 
     s_a: Stream[Stream[GraphZSet]] = Stream(StreamAddition(inner_group))
@@ -181,71 +179,20 @@ def test_lifted_lifted_delta_join() -> None:
     operator = DeltaLiftedDeltaLiftedJoin(
         s_a_handle, s_b_handle, lambda left, right: left[0] == right[1], lambda left, right: (right[0], left[1])
     )
-    operator.step()
-    operator.step()
-    operator.step()
 
-    joined_s = operator.output()
+    joined_s = step_until_fixpoint_and_return(operator)
 
     s1 = from_edges_into_zset_stream([(0, 2)])
     s2 = from_edges_into_zset_stream([(0, 3)])
     s3 = from_edges_into_zset_stream([(0, 4)])
 
+    empty_zset = inner_group.identity()
     assert from_stream_of_streams_into_list_of_lists(joined_s) == [
-        [ZSet({})],
-        s1.inner + [ZSet({})],
-        s2.inner + [ZSet({})],
-        s3.inner + [ZSet({})],
+        [empty_zset],
+        s1.inner + [empty_zset],
+        s2.inner + [empty_zset],
+        s3.inner + [empty_zset],
     ]
-
-
-class IncrementalGraphReachability(UnaryOperator[GraphZSet, GraphZSet]):
-    delta_input: LiftedStreamIntroduction[GraphZSet]
-    join: DeltaLiftedDeltaLiftedJoin[Edge, Edge, Edge]
-    delta_input_join_sum: LiftedGroupAdd[Stream[GraphZSet]]
-    distinct: DeltaLiftedDeltaLiftedDistinct[Edge]
-    lift_delayed_distinct: LiftedDelay[GraphZSet]
-    flattened_output: LiftedStreamElimination[GraphZSet]
-
-    def __init__(self, stream: StreamHandle[GraphZSet]):
-        self.input_stream_handle = stream
-
-        self.delta_input = LiftedStreamIntroduction(self.input_stream_handle)
-
-        self.join = DeltaLiftedDeltaLiftedJoin(
-            None,
-            None,
-            lambda left, right: left[1] == right[0],
-            lambda left, right: (left[0], right[1]),
-        )
-        self.delta_input_join_sum = LiftedGroupAdd(self.delta_input.output_handle(), self.join.output_handle())
-
-        self.distinct = DeltaLiftedDeltaLiftedDistinct(self.delta_input_join_sum.output_handle())
-        self.lift_delayed_distinct = LiftedDelay(self.distinct.output_handle())
-
-        self.join.set_input_a(self.lift_delayed_distinct.output_handle())
-        self.join.set_input_b(self.delta_input.output_handle())
-
-        self.flattened_output = LiftedStreamElimination(self.distinct.output_handle())
-        self.output_stream_handle = self.flattened_output.output_handle()
-
-    def step(self) -> bool:
-        fixedpoint_delta_input = self.delta_input.step()
-        fixedpoint_delta_input_join_sum = self.delta_input_join_sum.step()
-        fixedpoint_distinct = self.distinct.step()
-        fixedpoint_lift_delayed_distinct = self.lift_delayed_distinct.step()
-        fixedpoint_join = self.join.step()
-        fixedpoint_flattened_output = self.flattened_output.step()
-        fixedpoint = (
-            fixedpoint_delta_input
-            and fixedpoint_delta_input_join_sum
-            and fixedpoint_distinct
-            and fixedpoint_join
-            and fixedpoint_lift_delayed_distinct
-            and fixedpoint_flattened_output
-        )
-
-        return fixedpoint
 
 
 def create_zset_from_edges(edges: List[Edge]) -> GraphZSet:
@@ -267,21 +214,62 @@ def test_incremental_transitive_closure() -> None:
     op.step()
 
     s.send(create_zset_from_edges([(1, 2)]))
-    op.step()
+    step_until_fixpoint(op)
+    expected_integrated_state = create_zset_from_edges([(0, 1), (1, 2), (0, 2)])
+    actual_integrated_state = stream_elimination(op.output())
+    assert actual_integrated_state == expected_integrated_state
+
     s.send(ZSet({(0, 1): -1}))
-    op.step()
+    step_until_fixpoint(op)
+    expected_integrated_state = create_zset_from_edges([(1, 2)])
+    actual_integrated_state = stream_elimination(op.output())
+    assert actual_integrated_state == expected_integrated_state
+
     s.send(ZSet({(2, 3): 1}))
-    op.step()
+    step_until_fixpoint(op)
+    expected_integrated_state = create_zset_from_edges([(1, 2), (2, 3), (1, 3)])
+    actual_integrated_state = stream_elimination(op.output())
+    assert actual_integrated_state == expected_integrated_state
+
     s.send(ZSet({(3, 4): 1}))
-    op.step()
+    step_until_fixpoint(op)
+    expected_integrated_state = create_zset_from_edges([(1, 2), (2, 3), (1, 3), (3, 4), (1, 4), (2, 4)])
+    actual_integrated_state = stream_elimination(op.output())
+    assert actual_integrated_state == expected_integrated_state
+
     s.send(ZSet({(0, 1): 1}))
-    op.step()
+    step_until_fixpoint(op)
+    expected_integrated_state = create_zset_from_edges(
+        [(0, 1), (1, 2), (2, 3), (1, 3), (3, 4), (1, 4), (2, 4), (0, 2), (0, 3), (0, 4)]
+    )
+    actual_integrated_state = stream_elimination(op.output())
+    assert actual_integrated_state == expected_integrated_state
+
     s.send(ZSet({(0, 1): -1}))
-    op.step()
-    op.step()
-    op.step()
-    op.step()
+    step_until_fixpoint(op)
+    expected_integrated_state = create_zset_from_edges(
+        [
+            (1, 2),
+            (2, 3),
+            (1, 3),
+            (3, 4),
+            (1, 4),
+            (2, 4),
+        ]
+    )
+    actual_integrated_state = stream_elimination(op.output())
+    assert actual_integrated_state == expected_integrated_state
 
-    print(f"Integrated state: {stream_elimination(op.output())}")
+    s.send(ZSet({(0, 1): 1}))
+    step_until_fixpoint(op)
+    expected_integrated_state = create_zset_from_edges(
+        [(0, 1), (1, 2), (2, 3), (1, 3), (3, 4), (1, 4), (2, 4), (0, 2), (0, 3), (0, 4)]
+    )
+    actual_integrated_state = stream_elimination(op.output())
+    assert actual_integrated_state == expected_integrated_state
 
-    assert False
+    s.send(ZSet({(0, 1): -1}))
+    step_until_fixpoint(op)
+    expected_integrated_state = create_zset_from_edges([(1, 2), (2, 3), (1, 3), (3, 4), (1, 4), (2, 4)])
+    actual_integrated_state = stream_elimination(op.output())
+    assert actual_integrated_state == expected_integrated_state

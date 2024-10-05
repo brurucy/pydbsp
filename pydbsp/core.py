@@ -3,12 +3,13 @@ from typing import Protocol, TypeVar
 
 T = TypeVar("T")
 
+
 class AbelianGroupOperation(Protocol[T]):
     """
     This protocol defines the basic operations and properties of an Abelian group,
     addition and negation.
     """
-    
+
     @abstractmethod
     def add(self, a: T, b: T) -> T:
         raise NotImplementedError

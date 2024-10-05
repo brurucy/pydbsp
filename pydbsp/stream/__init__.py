@@ -237,9 +237,10 @@ F1 = Callable[[T], R]
 
 
 class Lift1(UnaryOperator[T, R]):
-    """Lifts a unary function to operate on a stream."""
+    """Lifts a unary function to operate on a stream"""
 
     f1: F1[T, R]
+    frontier: int
 
     def __init__(
         self,
@@ -248,26 +249,35 @@ class Lift1(UnaryOperator[T, R]):
         output_stream_group: Optional[AbelianGroupOperation[R]],
     ):
         self.f1 = f1
+        self.frontier = 0
         super().__init__(stream, output_stream_group)
 
     def step(self) -> bool:
         """Applies the lifted function to the next element in the input stream."""
         output_timestamp = self.output().current_time()
         input_timestamp = self.input_a().current_time()
-        if output_timestamp < input_timestamp:
-            self.output().send(self.f1(self.input_a()[output_timestamp + 1]))
+        join = max(input_timestamp, output_timestamp, self.frontier)
+        meet = min(input_timestamp, output_timestamp, self.frontier)
 
-            return False
+        if join == meet:
+            return True
 
-        return True
+        next_frontier = self.frontier + 1
+        self.output().send(self.f1(self.input_a()[next_frontier]))
+        self.frontier = next_frontier
+
+        return False
 
 
 F2 = Callable[[T, R], S]
 
 
 class Lift2(BinaryOperator[T, R, S]):
-    """Lifts a binary function to operate on two streams where data arrives at
-    different times."""
+    """Lifts a binary function to operate on two streams"""
+
+    f2: F2[T, R, S]
+    frontier_a: int
+    frontier_b: int
 
     def __init__(
         self,
@@ -277,6 +287,8 @@ class Lift2(BinaryOperator[T, R, S]):
         output_stream_group: Optional[AbelianGroupOperation[S]],
     ) -> None:
         self.f2 = f2
+        self.frontier_a = 0
+        self.frontier_b = 0
 
         super().__init__(stream_a, stream_b, output_stream_group)
 
@@ -285,20 +297,24 @@ class Lift2(BinaryOperator[T, R, S]):
         a_timestamp = self.input_a().current_time()
         b_timestamp = self.input_b().current_time()
         output_timestamp = self.output().current_time()
-        join = max(a_timestamp, b_timestamp)
-        fixedpoint = False
-        if output_timestamp == join:
-            fixedpoint = True
 
-            return fixedpoint
+        join = max(a_timestamp, b_timestamp, output_timestamp, self.frontier_a, self.frontier_b)
+        meet = min(a_timestamp, b_timestamp, output_timestamp, self.frontier_a, self.frontier_b)
+        if join == meet:
+            return True
 
-        a = self.input_a()[output_timestamp + 1]
-        b = self.input_b()[output_timestamp + 1]
+        next_frontier_a = self.frontier_a + 1
+        next_frontier_b = self.frontier_b + 1
+        a = self.input_a()[next_frontier_a]
+        b = self.input_b()[next_frontier_b]
 
         application = self.f2(a, b)
         self.output().send(application)
 
-        return fixedpoint
+        self.frontier_a = next_frontier_a
+        self.frontier_b = next_frontier_b
+
+        return False
 
 
 class LiftedGroupAdd(Lift2[T, T, T]):

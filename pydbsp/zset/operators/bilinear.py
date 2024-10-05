@@ -7,7 +7,6 @@ from pydbsp.stream import (
     Stream,
     StreamAddition,
     StreamHandle,
-    step_until_fixpoint,
     step_until_fixpoint_and_return,
 )
 from pydbsp.stream.operators.linear import Delay, Integrate, LiftedDelay, LiftedIntegrate
@@ -119,11 +118,13 @@ class DynamicLiftedLiftedJoin(BinaryOperator[Stream[ZSet[T]], Stream[ZSet[R]], S
 
 class DeltaLiftedDeltaLiftedJoin(BinaryOperator[Stream[ZSet[T]], Stream[ZSet[R]], Stream[ZSet[S]]]):
     """
-    Incrementally computes the Z-Set join between two streams element-wise. Equivalent to incrementalizing a doubly-lifted join. See :func:`~pydbsp.stream.operators.Incrementalize2` to grasp what it means to incrementalize a singly-lifted join.
+    Incrementally computes the Z-Set join between two streams element-wise. Equivalent to - but keeps less state - incrementalizing a doubly-lifted join. See :func:`~pydbsp.stream.operators.Incrementalize2` to grasp what it means to incrementalize a singly-lifted join.
     """
 
     p: JoinCmp[T, R]
     f: PostJoinProjection[T, R, S]
+    frontier_a: int
+    frontier_b: int
 
     integrated_stream_a: Integrate[Stream[ZSet[T]]]
     delayed_integrated_stream_a: Delay[Stream[ZSet[T]]]
@@ -206,6 +207,8 @@ class DeltaLiftedDeltaLiftedJoin(BinaryOperator[Stream[ZSet[T]], Stream[ZSet[R]]
     ):
         self.p = p
         self.f = f
+        self.frontier_a = 0
+        self.frontier_b = 0
         inner_group: ZSetAddition[S] = ZSetAddition()
         group: StreamAddition[ZSet[S]] = StreamAddition(inner_group)  # type: ignore
 
@@ -222,13 +225,17 @@ class DeltaLiftedDeltaLiftedJoin(BinaryOperator[Stream[ZSet[T]], Stream[ZSet[R]]
         return self.output_stream
 
     def step(self) -> bool:
-        self.integrated_stream_a.step()
-        step_until_fixpoint(self.delayed_integrated_stream_a)
+        current_a_timestamp = self.input_a().current_time()
+        current_b_timestamp = self.input_b().current_time()
+        if current_a_timestamp == self.frontier_a and current_b_timestamp == self.frontier_b:
+            return True
 
+        self.integrated_stream_a.step()
+        self.delayed_integrated_stream_a.step()
         self.lift_integrated_stream_a.step()
         self.integrated_lift_integrated_stream_a.step()
         self.integrated_stream_b.step()
-        step_until_fixpoint(self.delayed_integrated_stream_b)
+        self.delayed_integrated_stream_b.step()
         self.lift_integrated_stream_b.step()
         self.integrated_lift_integrated_stream_b.step()
         self.lift_delayed_integrated_lift_integrated_stream_b.step()
@@ -240,12 +247,13 @@ class DeltaLiftedDeltaLiftedJoin(BinaryOperator[Stream[ZSet[T]], Stream[ZSet[R]]
 
         self.sum_one.step()
         self.sum_two.step()
+        self.sum_three.step()
+        print("===OUT===")
+        print(self.sum_three.output().latest())
 
-        fixedpoint = self.sum_three.step()
+        self.output_stream.send(self.sum_three.output().latest())
 
-        if not fixedpoint:
-            self.output_stream.send(self.sum_three.output().latest())
+        self.frontier_a += 1
+        self.frontier_b += 1
 
-            return False
-
-        return fixedpoint
+        return False
