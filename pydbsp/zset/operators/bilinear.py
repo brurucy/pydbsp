@@ -227,6 +227,7 @@ class DeltaLiftedDeltaLiftedJoin(BinaryOperator[Stream[ZSet[T]], Stream[ZSet[R]]
     def step(self) -> bool:
         current_a_timestamp = self.input_a().current_time()
         current_b_timestamp = self.input_b().current_time()
+        # Not sure about this.
         if current_a_timestamp == self.frontier_a and current_b_timestamp == self.frontier_b:
             return True
 
@@ -248,8 +249,6 @@ class DeltaLiftedDeltaLiftedJoin(BinaryOperator[Stream[ZSet[T]], Stream[ZSet[R]]
         self.sum_one.step()
         self.sum_two.step()
         self.sum_three.step()
-        print("===OUT===")
-        print(self.sum_three.output().latest())
 
         self.output_stream.send(self.sum_three.output().latest())
 

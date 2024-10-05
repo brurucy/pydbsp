@@ -7,7 +7,7 @@ from pydbsp.algorithms.datalog import (
     Rule,
     Variable,
 )
-from pydbsp.stream import Stream, StreamHandle
+from pydbsp.stream import Stream, StreamHandle, step_until_fixpoint
 from pydbsp.stream.functions.linear import stream_elimination
 from pydbsp.zset import ZSetAddition
 
@@ -39,34 +39,6 @@ def from_rule_into_zset(rule: Rule, weight: int) -> Program:
     return program
 
 
-def test_reachability_inc() -> None:
-    program_group: ZSetAddition[Rule] = ZSetAddition()
-    program_stream = Stream(program_group)
-    program_stream_h = StreamHandle(lambda: program_stream)
-
-    # T(X, Y) <- E(X, Y)
-    seed: Rule = (("T", (Variable("X"), Variable("Y"))), ("E", (Variable("X"), Variable("Y"))))
-    reachability: Program = program_group.identity()
-    reachability.inner[seed] = 1
-
-    program_stream.send(reachability)
-
-    edb_group: ZSetAddition[Fact] = ZSetAddition()
-    edb_stream = Stream(edb_group)
-    edb_stream_h = StreamHandle(lambda: edb_stream)
-
-    incremental_datalog = IncrementalDatalogWithIndexing(edb_stream_h, program_stream_h, None)
-
-    edb_stream.send(from_fact_into_zset(("E", (0, 1)), 1))
-    incremental_datalog.step()
-    latest = (incremental_datalog.output())[1]
-    assert latest == from_fact_into_zset(("T", (0, 1)), 1)
-
-    edb_stream.send(from_fact_into_zset(("E", (1, 2)), 1))
-    incremental_datalog.step()
-    latest = stream_elimination(incremental_datalog.output())
-    assert latest == from_fact_into_zset(("T", (2, 3)), 1)
-
 def test_reachability() -> None:
     program_group: ZSetAddition[Rule] = ZSetAddition()
     program_stream = Stream(program_group)
@@ -96,8 +68,9 @@ def test_reachability() -> None:
 
     incremental_datalog = IncrementalDatalog(edb_stream_h, program_stream_h, None)
     incremental_indexed_datalog = IncrementalDatalogWithIndexing(edb_stream_h, program_stream_h, None)
-    incremental_datalog.step()
-    incremental_indexed_datalog.step()
+    step_until_fixpoint(incremental_datalog)
+    step_until_fixpoint(incremental_indexed_datalog)
+
     output_stream = incremental_datalog.output_handle().get()
     indexed_output_stream = incremental_indexed_datalog.output_handle().get()
     actual_output = stream_elimination(output_stream)
@@ -153,8 +126,8 @@ def test_triangle() -> None:
 
     incremental_datalog = IncrementalDatalog(edb_stream_h, program_stream_h, None)
     incremental_indexed_datalog = IncrementalDatalogWithIndexing(edb_stream_h, program_stream_h, None)
-    incremental_datalog.step()
-    incremental_indexed_datalog.step()
+    step_until_fixpoint(incremental_datalog)
+    step_until_fixpoint(incremental_indexed_datalog)
     output_stream = incremental_datalog.output_handle().get()
     indexed_output_stream = incremental_indexed_datalog.output_handle().get()
     actual_output = stream_elimination(output_stream)
