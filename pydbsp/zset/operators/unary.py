@@ -1,7 +1,7 @@
 from typing import Optional, TypeVar
 
 from pydbsp.core import AbelianGroupOperation
-from pydbsp.stream import Stream, StreamHandle, UnaryOperator, step_until_fixpoint
+from pydbsp.stream import Stream, StreamHandle, UnaryOperator
 from pydbsp.stream.operators.linear import Differentiate, Integrate, LiftedDelay, LiftedIntegrate
 from pydbsp.zset import ZSet
 from pydbsp.zset.operators.binary import LiftedLiftedH

@@ -7,12 +7,10 @@ from pydbsp.stream import (
     Stream,
     StreamAddition,
     StreamHandle,
-    step_until_fixpoint,
     step_until_fixpoint_and_return,
 )
 from pydbsp.stream.operators.linear import (
     Delay,
-    LiftedDelay,
     LiftedStreamElimination,
     LiftedStreamIntroduction,
 )
@@ -432,7 +430,7 @@ def compute_rule_index(rule: Rule) -> ColumnIndex:
     return column_index
 
 
-def compute_index(program: Program) -> ColumnIndex:
+def jorder(program: Program) -> ColumnIndex:
     group: ZSetAddition[IndexSchema] = ZSetAddition()
     column_index = group.identity()
 
@@ -445,19 +443,19 @@ def compute_index(program: Program) -> ColumnIndex:
     return column_index
 
 
-class LiftedComputeIndexSchemas(Lift1[Program, ColumnIndex]):
+class LiftedJorder(Lift1[Program, ColumnIndex]):
     def __init__(self, stream: Optional[StreamHandle[Program]]):
-        super().__init__(stream, lambda p: compute_index(p), None)
+        super().__init__(stream, lambda p: jorder(p), None)
 
 
-class LiftedLiftedComputeIndexSchemas(Lift1[Stream[Program], Stream[ColumnIndex]]):
+class LiftedLiftedJorder(Lift1[Stream[Program], Stream[ColumnIndex]]):
     def __init__(
         self,
         stream: Optional[StreamHandle[Stream[Program]]],
     ):
         super().__init__(
             stream,
-            lambda sp: step_until_fixpoint_and_return(LiftedComputeIndexSchemas(StreamHandle(lambda: sp))),
+            lambda sp: step_until_fixpoint_and_return(LiftedJorder(StreamHandle(lambda: sp))),
             None,
         )
 
@@ -603,17 +601,9 @@ class LiftedLiftedDeriveExtendedProgramProvenance:
 AtomWithSourceRewriteAndExtendedProvenance = Tuple[Provenance, Atom | None, Rewrite, ColumnReference]
 
 
-def index() -> None:
-    return None
-
-
-def jorder() -> None:
-    return None
-
-
 class IncrementalDatalogWithIndexing(BinaryOperator[EDB, Program, EDB]):
     lift_intro_program: LiftedStreamIntroduction[Program]
-    lift_lift_compute_index_schemas: LiftedLiftedComputeIndexSchemas
+    lift_lift_compute_index_schemas: LiftedLiftedJorder
     lift_derive_program_provenance: LiftedDeriveProgramProvenance
     lift_lift_grounding: StreamHandle[Stream[GroundingSignals]]
     lift_lift_provenance: StreamHandle[Stream[ExtendedProvenanceChain]]
@@ -661,7 +651,7 @@ class IncrementalDatalogWithIndexing(BinaryOperator[EDB, Program, EDB]):
     def set_input_b(self, stream_handle_b: StreamHandle[Program]) -> None:
         self.input_stream_handle_b = stream_handle_b
         self.lift_intro_program = LiftedStreamIntroduction(self.input_stream_handle_b)
-        self.lift_lift_compute_index_schemas = LiftedLiftedComputeIndexSchemas(self.lift_intro_program.output_handle())
+        self.lift_lift_compute_index_schemas = LiftedLiftedJorder(self.lift_intro_program.output_handle())
         self.lift_lift_derive_program_provenance = LiftedLiftedDeriveExtendedProgramProvenance(
             self.lift_intro_program.output_handle()
         )

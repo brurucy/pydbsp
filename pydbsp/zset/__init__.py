@@ -46,6 +46,9 @@ class ZSet(Generic[T]):
 
         return self.inner[item]
 
+    def is_identity(self) -> bool:
+        return len(self.inner) == 0
+
     def __setitem__(self, key: T, value: int) -> None:
         self.inner[key] = value
 
