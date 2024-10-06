@@ -398,12 +398,12 @@ class IncrementalDatalog(BinaryOperator[EDB, Program, EDB]):
 
 
 ColumnReference = Tuple[int, ...]
-IndexSchema = Tuple[Predicate, ColumnReference]
-ColumnIndex = ZSet[IndexSchema]
+JoinIndex = Tuple[Predicate, ColumnReference]
+NaiveJoinOrder = ZSet[JoinIndex]
 
 
-def compute_rule_index(rule: Rule) -> ColumnIndex:
-    group: ZSetAddition[IndexSchema] = ZSetAddition()
+def compute_rule_index(rule: Rule) -> NaiveJoinOrder:
+    group: ZSetAddition[JoinIndex] = ZSetAddition()
     column_index = group.identity()
 
     variables: Set[Variable] = set()
@@ -430,8 +430,8 @@ def compute_rule_index(rule: Rule) -> ColumnIndex:
     return column_index
 
 
-def jorder(program: Program) -> ColumnIndex:
-    group: ZSetAddition[IndexSchema] = ZSetAddition()
+def jorder(program: Program) -> NaiveJoinOrder:
+    group: ZSetAddition[JoinIndex] = ZSetAddition()
     column_index = group.identity()
 
     for rule, _weight in program.items():
@@ -443,12 +443,12 @@ def jorder(program: Program) -> ColumnIndex:
     return column_index
 
 
-class LiftedJorder(Lift1[Program, ColumnIndex]):
+class LiftedJorder(Lift1[Program, NaiveJoinOrder]):
     def __init__(self, stream: Optional[StreamHandle[Program]]):
         super().__init__(stream, lambda p: jorder(p), None)
 
 
-class LiftedLiftedJorder(Lift1[Stream[Program], Stream[ColumnIndex]]):
+class LiftedLiftedJorder(Lift1[Stream[Program], Stream[NaiveJoinOrder]]):
     def __init__(
         self,
         stream: Optional[StreamHandle[Stream[Program]]],
@@ -602,37 +602,41 @@ AtomWithSourceRewriteAndExtendedProvenance = Tuple[Provenance, Atom | None, Rewr
 
 
 class IncrementalDatalogWithIndexing(BinaryOperator[EDB, Program, EDB]):
-    lift_intro_program: LiftedStreamIntroduction[Program]
-    lift_lift_compute_index_schemas: LiftedLiftedJorder
-    lift_derive_program_provenance: LiftedDeriveProgramProvenance
-    lift_lift_grounding: StreamHandle[Stream[GroundingSignals]]
-    lift_lift_provenance: StreamHandle[Stream[ExtendedProvenanceChain]]
+    # Program transformations
+    lifted_sig: LiftedSig
+    lifted_intro_lifted_sig: LiftedStreamIntroduction[GroundingSignals]
+    lifted_dir: LiftedDir
+    lifted_intro_lifted_dir: LiftedStreamIntroduction[ProvenanceChain]
+    lifted_jorder: LiftedJorder
+    lifted_intro_lifted_jorder: LiftedStreamIntroduction[NaiveJoinOrder]
 
+    # EDB transformations
     lift_intro_edb: LiftedStreamIntroduction[EDB]
 
+    # Rewrite transformations
     rewrites: StreamHandle[ZSet[ProvenanceIndexedRewrite]]
     lift_rewrites: LiftedStreamIntroduction[ZSet[ProvenanceIndexedRewrite]]
 
-    iteration: DeltaLiftedDeltaLiftedJoin[
-        ProvenanceIndexedRewrite, ExtendedProvenanceDirection, AtomWithSourceRewriteAndProvenance
-    ]
+    # Joins
+    gatekeep: DeltaLiftedDeltaLiftedJoin[ProvenanceIndexedRewrite, Direction, AtomWithSourceRewriteAndProvenance]
+    product: DeltaLiftedDeltaLiftedJoin[AtomWithSourceRewriteAndProvenance, IndexedFact, ProvenanceIndexedRewrite]
+    ground: DeltaLiftedDeltaLiftedJoin[ProvenanceIndexedRewrite, Signal, Fact]
+    index: DeltaLiftedDeltaLiftedJoin[Fact, JoinIndex, IndexedFact]
 
-    rewrite_product: DeltaLiftedDeltaLiftedJoin[
-        AtomWithSourceRewriteAndProvenance, IndexedFact, ProvenanceIndexedRewrite
-    ]
-    fresh_facts: DeltaLiftedDeltaLiftedJoin[ProvenanceIndexedRewrite, Signal, Fact]
-    indexed_fresh_facts: DeltaLiftedDeltaLiftedJoin[Fact, ExtendedProvenanceDirection, IndexedFact]
-
+    # Distincts
+    distinct_rewrites: DeltaLiftedDeltaLiftedDistinct[ProvenanceIndexedRewrite]
     distinct_facts: DeltaLiftedDeltaLiftedDistinct[Fact]
     distinct_indexed_facts: DeltaLiftedDeltaLiftedDistinct[IndexedFact]
-    distinct_rewrites: DeltaLiftedDeltaLiftedDistinct[ProvenanceIndexedRewrite]
 
+    # Delays
     delay_distinct_indexed_facts: Delay[Stream[ZSet[IndexedFact]]]
     delay_distinct_rewrites: Delay[Stream[ZSet[ProvenanceIndexedRewrite]]]
 
+    # Pluses
     fresh_facts_plus_edb: LiftedGroupAdd[Stream[EDB]]
     rewrite_product_plus_rewrites: LiftedGroupAdd[Stream[ZSet[ProvenanceIndexedRewrite]]]
 
+    # Stream elimination
     lift_elim_fresh_facts: LiftedStreamElimination[EDB]
 
     def set_input_a(self, stream_handle_a: StreamHandle[EDB]) -> None:
@@ -650,23 +654,25 @@ class IncrementalDatalogWithIndexing(BinaryOperator[EDB, Program, EDB]):
 
     def set_input_b(self, stream_handle_b: StreamHandle[Program]) -> None:
         self.input_stream_handle_b = stream_handle_b
-        self.lift_intro_program = LiftedStreamIntroduction(self.input_stream_handle_b)
-        self.lift_lift_compute_index_schemas = LiftedLiftedJorder(self.lift_intro_program.output_handle())
-        self.lift_lift_derive_program_provenance = LiftedLiftedDeriveExtendedProgramProvenance(
-            self.lift_intro_program.output_handle()
-        )
-        self.lift_lift_grounding = self.lift_lift_derive_program_provenance.grounding_stream_handle
-        self.lift_lift_provenance = self.lift_lift_derive_program_provenance.provenance_stream_handle
 
-        self.iteration = DeltaLiftedDeltaLiftedJoin(
+        self.lifted_sig = LiftedSig(self.input_stream_handle_b)
+        self.lifted_intro_lifted_sig = LiftedStreamIntroduction(self.lifted_sig.output_handle())
+
+        self.lifted_dir = LiftedDir(self.input_stream_handle_b)
+        self.lifted_intro_lifted_dir = LiftedStreamIntroduction(self.lifted_dir.output_handle())
+
+        self.lifted_jorder = LiftedJorder(self.input_stream_handle_b)
+        self.lifted_intro_lifted_jorder = LiftedStreamIntroduction(self.lifted_jorder.output_handle())
+
+        self.gatekeep = DeltaLiftedDeltaLiftedJoin(
             None,
             None,
             lambda left, right: left[0] == right[0],
             lambda left, right: (right[1], right[2], left[1]),
         )
 
-        self.rewrite_product = DeltaLiftedDeltaLiftedJoin(
-            self.iteration.output_handle(),
+        self.product = DeltaLiftedDeltaLiftedJoin(
+            self.gatekeep.output_handle(),
             None,
             lambda left, right: left[1] is None
             or (left[1][0] == right[1][0] and left[2] == RewriteMonoid().identity())
@@ -674,36 +680,34 @@ class IncrementalDatalogWithIndexing(BinaryOperator[EDB, Program, EDB]):
             lambda left, right: rewrite_product_projection((left[0], left[1], left[2]), right[1]),
         )
 
-        self.fresh_facts = DeltaLiftedDeltaLiftedJoin(
-            self.rewrite_product.output_handle(),
-            self.lift_lift_grounding,
+        self.ground = DeltaLiftedDeltaLiftedJoin(
+            self.product.output_handle(),
+            self.lifted_intro_lifted_sig.output_handle(),
             lambda left, right: left[0] == right[0],
             lambda left, right: left[1].apply(right[1]),
         )
 
-        self.fresh_facts_plus_edb = LiftedGroupAdd(
-            self.fresh_facts.output_handle(), self.lift_intro_edb.output_handle()
-        )
+        self.fresh_facts_plus_edb = LiftedGroupAdd(self.ground.output_handle(), self.lift_intro_edb.output_handle())
         self.distinct_facts = DeltaLiftedDeltaLiftedDistinct(self.fresh_facts_plus_edb.output_handle())
-        self.indexed_fresh_facts = DeltaLiftedDeltaLiftedJoin(
+        self.index = DeltaLiftedDeltaLiftedJoin(
             self.distinct_facts.output_handle(),
-            self.lift_lift_provenance,
-            lambda left, right: left[0] == right[2][0],  # type: ignore
-            lambda left, right: index_fact(right[3], left),
+            self.lifted_intro_lifted_jorder.output_handle(),
+            lambda left, right: left[0] == right[0],
+            lambda left, right: index_fact(right[1], left),
         )
-        self.distinct_indexed_facts = DeltaLiftedDeltaLiftedDistinct(self.indexed_fresh_facts.output_handle())
+        self.distinct_indexed_facts = DeltaLiftedDeltaLiftedDistinct(self.index.output_handle())
 
         self.rewrite_product_plus_rewrites = LiftedGroupAdd(
-            self.rewrite_product.output_handle(), self.lift_rewrites.output_handle()
+            self.product.output_handle(), self.lift_rewrites.output_handle()
         )
         self.distinct_rewrites = DeltaLiftedDeltaLiftedDistinct(self.rewrite_product_plus_rewrites.output_handle())
 
         self.delay_distinct_rewrites = Delay(self.distinct_rewrites.output_handle())
         self.delay_distinct_indexed_facts = Delay(self.distinct_indexed_facts.output_handle())
 
-        self.iteration.set_input_a(self.delay_distinct_rewrites.output_handle())
-        self.iteration.set_input_b(self.lift_lift_provenance)
-        self.rewrite_product.set_input_b(self.delay_distinct_indexed_facts.output_handle())
+        self.gatekeep.set_input_a(self.delay_distinct_rewrites.output_handle())
+        self.gatekeep.set_input_b(self.lifted_intro_lifted_dir.output_handle())
+        self.product.set_input_b(self.delay_distinct_indexed_facts.output_handle())
 
         self.lift_elim_fresh_facts = LiftedStreamElimination(self.distinct_facts.output_handle())
         self.output_stream_handle = self.lift_elim_fresh_facts.output_handle()
@@ -711,15 +715,18 @@ class IncrementalDatalogWithIndexing(BinaryOperator[EDB, Program, EDB]):
     def step(self) -> bool:
         self.lift_intro_edb.step()
         self.lift_rewrites.step()
-        self.lift_intro_program.step()
-        self.lift_lift_derive_program_provenance.step()
-        self.lift_lift_compute_index_schemas.step()
-        self.iteration.step()
-        self.rewrite_product.step()
-        self.fresh_facts.step()
+        self.lifted_sig.step()
+        self.lifted_dir.step()
+        self.lifted_jorder.step()
+        self.lifted_intro_lifted_sig.step()
+        self.lifted_intro_lifted_dir.step()
+        self.lifted_intro_lifted_jorder.step()
+        self.gatekeep.step()
+        self.product.step()
+        self.ground.step()
         self.fresh_facts_plus_edb.step()
         self.distinct_facts.step()
-        self.indexed_fresh_facts.step()
+        self.index.step()
         self.distinct_indexed_facts.step()
         self.rewrite_product_plus_rewrites.step()
         self.distinct_rewrites.step()
