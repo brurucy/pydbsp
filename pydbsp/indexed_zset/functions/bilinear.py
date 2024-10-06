@@ -1,14 +1,20 @@
 from itertools import product
+from typing import Callable, TypeVar
 
 from pydbsp.indexed_zset import IndexedZSet, sort_merge_join
 from pydbsp.zset import ZSet
-from pydbsp.zset.functions.bilinear import PostJoinProjection
+
+I = TypeVar("I")
+T = TypeVar("T")
+R = TypeVar("R")
+S = TypeVar("S")
+PostSortMergeJoinProjection = Callable[[I, T, R], S]
 
 
-def join_with_index[T, I1, R, S](
-    left_indexed_zset: IndexedZSet[T, I1],
-    right_indexed_zset: IndexedZSet[R, I1],
-    f: PostJoinProjection[T, R, S],
+def join_with_index[T, I, R, S](
+    left_indexed_zset: IndexedZSet[I, T],
+    right_indexed_zset: IndexedZSet[I, R],
+    f: PostSortMergeJoinProjection[I, T, R, S],
 ) -> ZSet[S]:
     """
     Joins two ZSets. Takes advantage of the B-Tree indexes and is implemented as a sort-merge join.
@@ -28,7 +34,7 @@ def join_with_index[T, I1, R, S](
         left_x_right = product(left_values, right_values)
 
         projected_values = [
-            (f(left_value, right_value), left_weight * right_weight)
+            (f(match, left_value, right_value), left_weight * right_weight)
             for ((left_value, left_weight), (right_value, right_weight)) in left_x_right
         ]
 

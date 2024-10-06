@@ -2,14 +2,14 @@ from bisect import bisect_right, insort
 from typing import Callable, Dict, Generator, Generic, Iterable, Iterator, List, Set, Tuple, TypeVar
 
 from pydbsp.core import AbelianGroupOperation
-from pydbsp.zset import ZSet, ZSetAddition
+from pydbsp.zset import ZSetAddition
 
 T = TypeVar("T")
 
 
 class AppendOnlySpine(Generic[T]):
     """
-    A append-only B-Tree node. Borrowed from `https://github.com/grantjenks/python-sortedcontainers` and `https://github.com/brurucy/indexset`. Only for internal use.
+    A append-only flat B-Tree. Borrowed from `https://github.com/grantjenks/python-sortedcontainers` and `https://github.com/brurucy/indexset`. Only for internal use.
     """
 
     _len: int
@@ -93,7 +93,7 @@ I = TypeVar("I")
 Indexer = Callable[[T], I]
 
 
-class IndexedZSet(Generic[T, I], ZSet[T]):
+class IndexedZSet(Generic[I, T]):
     """
     Represents a Z-set, with a B-Tree index. See :func:`~pydbsp.zset.ZSet`.
     """
@@ -149,7 +149,7 @@ class IndexedZSet(Generic[T, I], ZSet[T]):
         self.index.add(indexed_value)
 
 
-class IndexedZSetAddition(Generic[T, I], AbelianGroupOperation[IndexedZSet[T, I]]):
+class IndexedZSetAddition(Generic[I, T], AbelianGroupOperation[IndexedZSet[I, T]]):
     inner_group: ZSetAddition[T]
     indexer: Indexer[T, I]
 
@@ -157,7 +157,7 @@ class IndexedZSetAddition(Generic[T, I], AbelianGroupOperation[IndexedZSet[T, I]
         self.inner_group = inner_group
         self.indexer = indexer
 
-    def add(self, a: IndexedZSet[T, I], b: IndexedZSet[T, I]) -> IndexedZSet[T, I]:
+    def add(self, a: IndexedZSet[I, T], b: IndexedZSet[I, T]) -> IndexedZSet[I, T]:
         if len(b.inner) == 0:
             return a
 
@@ -174,7 +174,7 @@ class IndexedZSetAddition(Generic[T, I], AbelianGroupOperation[IndexedZSet[T, I]
 
         return IndexedZSet(c, self.indexer)
 
-    def neg(self, a: IndexedZSet[T, I]) -> IndexedZSet[T, I]:
+    def neg(self, a: IndexedZSet[I, T]) -> IndexedZSet[I, T]:
         empty_dict: Dict[T, int] = {}
         b = IndexedZSet(empty_dict, a.indexer)
         b.index = a.index
@@ -183,7 +183,7 @@ class IndexedZSetAddition(Generic[T, I], AbelianGroupOperation[IndexedZSet[T, I]
 
         return b
 
-    def identity(self) -> IndexedZSet[T, I]:
+    def identity(self) -> IndexedZSet[I, T]:
         empty_dict: Dict[T, int] = {}
 
         return IndexedZSet(empty_dict, self.indexer)
