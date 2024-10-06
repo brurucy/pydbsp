@@ -1,11 +1,11 @@
 from typing import Any, Dict, List, NewType, Optional, Set, Tuple, TypeAlias, TypeVar, cast
 
+from pydbsp.indexed_zset.operators.linear import LiftedLiftedIndex
 from pydbsp.stream import (
     BinaryOperator,
     Lift1,
     LiftedGroupAdd,
     Stream,
-    StreamAddition,
     StreamHandle,
     step_until_fixpoint_and_return,
 )
@@ -145,38 +145,6 @@ GroundingSignals = ZSet[Signal]
 EmptyGroundingCanaries: GroundingSignals = ZSetAddition().identity()
 
 
-def derive_rule_provenance(rule: Rule) -> tuple[GroundingSignals, ProvenanceChain]:
-    provenance_chain: ProvenanceChain = ZSetAddition().identity()
-    running_provenance = 0
-
-    if len(rule) > 1:
-        for dependency in rule[1:]:
-            previous_atom_provenance = running_provenance
-            running_provenance += hash(dependency)
-
-            provenance_chain.inner[(previous_atom_provenance, running_provenance, dependency)] = 1
-
-    full_provenance = running_provenance
-    grounding_canaries: GroundingSignals = ZSetAddition().identity()
-    grounding_canaries.inner[(full_provenance, rule[0])] = 1  # type: ignore
-
-    return (grounding_canaries, provenance_chain)
-
-
-def derive_program_provenance(program: Program) -> tuple[GroundingSignals, ProvenanceChain]:
-    grounding_group: ZSetAddition[Signal] = ZSetAddition()
-    grounding_canaries: GroundingSignals = ZSetAddition().identity()
-
-    provenance_group: ZSetAddition[Direction] = ZSetAddition()
-    provenance_chain: ProvenanceChain = ZSetAddition().identity()
-    for rule in program.inner.keys():
-        (canaries, chain) = derive_rule_provenance(rule)
-        grounding_canaries = grounding_group.add(grounding_canaries, canaries)
-        provenance_chain = provenance_group.add(provenance_chain, chain)
-
-    return grounding_canaries, provenance_chain
-
-
 def sig(program: Program) -> GroundingSignals:
     signals: GroundingSignals = ZSetAddition().identity()
 
@@ -221,38 +189,6 @@ class LiftedDir(Lift1[Program, ProvenanceChain]):
         group: ZSetAddition[Direction] = ZSetAddition()
 
         super().__init__(stream, dir, group)
-
-
-class LiftedDeriveProgramProvenance:
-    input_a: StreamHandle[Program]
-    grounding_stream_handle: StreamHandle[GroundingSignals]
-    provenance_stream_handle: StreamHandle[ProvenanceChain]
-
-    def __init__(self, stream_handle: StreamHandle[Program]) -> None:
-        self.input_a = stream_handle
-        grounding_group: ZSetAddition[Signal] = ZSetAddition()
-        grounding_stream: Stream[GroundingSignals] = Stream(grounding_group)
-
-        provenance_group: ZSetAddition[Direction] = ZSetAddition()
-        provenance_stream: Stream[ProvenanceChain] = Stream(provenance_group)
-
-        self.grounding_stream_handle = StreamHandle(lambda: grounding_stream)
-        self.provenance_stream_handle = StreamHandle(lambda: provenance_stream)
-
-    def output_grounding(self) -> Stream[GroundingSignals]:
-        return self.grounding_stream_handle.get()
-
-    def output_provenance(self) -> Stream[ProvenanceChain]:
-        return self.provenance_stream_handle.get()
-
-    def step(self) -> bool:
-        output_timestamp = self.output_grounding().current_time() + 1
-        latest_program_provenance = derive_program_provenance(self.input_a.get()[output_timestamp])
-
-        self.grounding_stream_handle.get().send(latest_program_provenance[0])
-        self.provenance_stream_handle.get().send(latest_program_provenance[1])
-
-        return True
 
 
 AtomSet: TypeAlias = ZSet[Atom]
@@ -493,111 +429,6 @@ ExtendedProvenanceChain: TypeAlias = ZSet[ExtendedProvenanceDirection]
 ColumnReferenceSequence = List[ColumnReference]
 
 
-def compute_rule_column_reference_sequence(rule: Rule) -> ColumnReferenceSequence:
-    column_reference_sequence: ColumnReferenceSequence = []
-
-    variables: Set[Variable] = set()
-    fresh_variables: Set[Variable] = set()
-
-    for body_atom in rule[1:]:
-        columns: List[int] = []
-
-        for idx, term in enumerate(body_atom[1]):
-            if isinstance(term, _Variable) and term not in variables:
-                fresh_variables.add(term)
-
-                continue
-
-            columns.append(idx)
-
-        column_reference_sequence.append(tuple(columns))
-        for variable in fresh_variables:
-            variables.add(variable)
-
-        fresh_variables.clear()
-
-    return column_reference_sequence
-
-
-def derive_extended_rule_provenance(rule: Rule) -> tuple[GroundingSignals, ExtendedProvenanceChain]:
-    provenance_chain: ExtendedProvenanceChain = ZSetAddition().identity()
-    column_reference_sequence = compute_rule_column_reference_sequence(rule)
-
-    running_provenance = 0
-
-    if len(rule) > 1:
-        for idx, dependency in enumerate(rule[1:]):
-            previous_atom_provenance = running_provenance
-            running_provenance += hash(dependency)
-
-            provenance_chain.inner[
-                (previous_atom_provenance, running_provenance, dependency, column_reference_sequence[idx])
-            ] = 1
-
-    full_provenance = running_provenance
-    grounding_canaries: GroundingSignals = ZSetAddition().identity()
-    grounding_canaries.inner[(full_provenance, rule[0])] = 1  # type: ignore
-
-    return (grounding_canaries, provenance_chain)
-
-
-def derive_extended_program_provenance(program: Program) -> tuple[GroundingSignals, ExtendedProvenanceChain]:
-    grounding_group: ZSetAddition[Signal] = ZSetAddition()
-    grounding_canaries: GroundingSignals = ZSetAddition().identity()
-
-    provenance_group: ZSetAddition[ExtendedProvenanceDirection] = ZSetAddition()
-    provenance_chain: ExtendedProvenanceChain = ZSetAddition().identity()
-    for rule in program.inner.keys():
-        (canaries, chain) = derive_extended_rule_provenance(rule)
-        grounding_canaries = grounding_group.add(grounding_canaries, canaries)
-        provenance_chain = provenance_group.add(provenance_chain, chain)
-
-    return grounding_canaries, provenance_chain
-
-
-class LiftedLiftedDeriveExtendedProgramProvenance:
-    input_a: StreamHandle[Stream[Program]]
-    grounding_stream_handle: StreamHandle[Stream[GroundingSignals]]
-    provenance_stream_handle: StreamHandle[Stream[ExtendedProvenanceChain]]
-
-    def __init__(self, stream_handle: StreamHandle[Stream[Program]]) -> None:
-        self.input_a = stream_handle
-        grounding_group: StreamAddition[GroundingSignals] = StreamAddition(ZSetAddition[Signal]())
-        grounding_stream: Stream[Stream[GroundingSignals]] = Stream(grounding_group)
-
-        provenance_group: StreamAddition[ExtendedProvenanceChain] = StreamAddition(
-            ZSetAddition[ExtendedProvenanceDirection]()
-        )
-        provenance_stream: Stream[Stream[ExtendedProvenanceChain]] = Stream(provenance_group)
-
-        self.grounding_stream_handle = StreamHandle(lambda: grounding_stream)
-        self.provenance_stream_handle = StreamHandle(lambda: provenance_stream)
-
-    def output_grounding(self) -> Stream[Stream[GroundingSignals]]:
-        return self.grounding_stream_handle.get()
-
-    def output_provenance(self) -> Stream[Stream[ExtendedProvenanceChain]]:
-        return self.provenance_stream_handle.get()
-
-    def output_handle(self) -> StreamHandle[Stream[GroundingSignals]]:
-        return self.grounding_stream_handle
-
-    def step(self) -> bool:
-        output_timestamp = self.output_grounding().current_time() + 1
-        latest_program_provenance = derive_extended_program_provenance(self.input_a.get()[output_timestamp].latest())
-
-        new_grounding_stream = Stream(ZSetAddition[Signal]())
-        new_grounding_stream.send(latest_program_provenance[0])
-
-        new_provenance_stream = Stream(ZSetAddition[ExtendedProvenanceDirection]())
-        new_provenance_stream.send(latest_program_provenance[1])
-
-        self.grounding_stream_handle.get().send(new_grounding_stream)
-        self.provenance_stream_handle.get().send(new_provenance_stream)
-
-        return True
-
-
 AtomWithSourceRewriteAndExtendedProvenance = Tuple[Provenance, Atom | None, Rewrite, ColumnReference]
 
 
@@ -670,6 +501,7 @@ class IncrementalDatalogWithIndexing(BinaryOperator[EDB, Program, EDB]):
             lambda left, right: left[0] == right[0],
             lambda left, right: (right[1], right[2], left[1]),
         )
+        self.indexed_gatekeep = LiftedLiftedIndex(self.gatekeep.output_handle(), lambda s: s[0])
 
         self.product = DeltaLiftedDeltaLiftedJoin(
             self.gatekeep.output_handle(),
