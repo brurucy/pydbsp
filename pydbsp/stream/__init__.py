@@ -19,13 +19,15 @@ class Stream(Generic[T]):
     inner: List[T]
     group_op: AbelianGroupOperation[T]
     identity: bool
+    default: T
 
     def __init__(self, group_op: AbelianGroupOperation[T]) -> None:
         self.inner = []
         self.group_op = group_op
         self.timestamp = -1
         self.identity = True
-        self.send(group_op.identity())
+        self.default = group_op.identity()
+        self.send(self.default)
 
     def send(self, element: T) -> None:
         """Adds an element to the stream and increments the timestamp."""
@@ -50,6 +52,18 @@ class Stream(Generic[T]):
     def __repr__(self) -> str:
         return self.inner.__repr__()
 
+    def set_default(self, new_default: T):
+        """
+        Warning! changing this can break causality. Stay clear of this function unless you REALLY know what you are
+        doing.
+
+        This function effectively "freezes" the stream to strictly return a not-identity value when a timestamp
+        beyond its frontier is requested.
+
+        This is used in very specific scenarios. See the `LiftedIntegrate` implementation.
+        """
+        self.default = new_default
+
     def __getitem__(self, timestamp: int) -> T:
         """Returns the element at the given timestamp."""
         if timestamp < 0:
@@ -59,9 +73,8 @@ class Stream(Generic[T]):
             return self.inner.__getitem__(timestamp)
 
         elif timestamp > self.current_time():
-            id = self.group().identity()
             while timestamp > self.current_time():
-                self.send(id)
+                self.send(self.default)
 
         return self.__getitem__(timestamp)
 
@@ -346,8 +359,14 @@ class StreamAddition(AbelianGroupOperation[Stream[T]]):
         handle_b = StreamHandle(lambda: b)
 
         lifted_group_add = LiftedGroupAdd(handle_a, handle_b)
+        out = step_until_fixpoint_and_return(lifted_group_add)
+        if a.is_identity():
+            out.default = b.default
 
-        return step_until_fixpoint_and_return(lifted_group_add)
+        if b.is_identity():
+            out.default = a.default
+
+        return out
 
     def inner_group(self) -> AbelianGroupOperation[T]:
         """Returns the underlying group operation."""

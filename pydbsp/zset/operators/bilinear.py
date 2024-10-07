@@ -84,10 +84,6 @@ class DeltaLiftedDeltaLiftedJoin(BinaryOperator[Stream[ZSet[T]], Stream[ZSet[R]]
     join_3: LiftedLiftedJoin[T, R, S]
     join_4: LiftedLiftedJoin[T, R, S]
 
-    sum_one: LiftedGroupAdd[Stream[ZSet[S]]]
-    sum_two: LiftedGroupAdd[Stream[ZSet[S]]]
-    sum_three: LiftedGroupAdd[Stream[ZSet[S]]]
-
     output_stream: Stream[Stream[ZSet[S]]]
 
     def set_input_a(self, stream_handle_a: StreamHandle[Stream[ZSet[T]]]) -> None:
@@ -134,10 +130,6 @@ class DeltaLiftedDeltaLiftedJoin(BinaryOperator[Stream[ZSet[T]], Stream[ZSet[R]]
             self.p,
             self.f,
         )
-
-        self.sum_one = LiftedGroupAdd(self.join_1.output_handle(), self.join_2.output_handle())
-        self.sum_two = LiftedGroupAdd(self.sum_one.output_handle(), self.join_3.output_handle())
-        self.sum_three = LiftedGroupAdd(self.sum_two.output_handle(), self.join_4.output_handle())
 
     def __init__(
         self,

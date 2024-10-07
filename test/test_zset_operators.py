@@ -8,10 +8,7 @@ from pydbsp.stream import (
     step_until_fixpoint,
     step_until_fixpoint_and_return,
 )
-from pydbsp.stream.functions.linear import stream_introduction
-from pydbsp.stream.operators.linear import (
-    stream_elimination,
-)
+from pydbsp.stream.functions.linear import stream_elimination, stream_introduction
 from pydbsp.zset import ZSet, ZSetAddition
 from pydbsp.zset.operators.bilinear import DeltaLiftedDeltaLiftedJoin, LiftedJoin, LiftedLiftedJoin
 from pydbsp.zset.operators.linear import LiftedLiftedProject, LiftedLiftedSelect, LiftedProject, LiftedSelect
@@ -211,7 +208,6 @@ def test_incremental_transitive_closure() -> None:
     s_h = StreamHandle(lambda: s)
 
     op = IncrementalGraphReachability(s_h)
-    op.step()
 
     s.send(create_zset_from_edges([(1, 2)]))
     step_until_fixpoint(op)

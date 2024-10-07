@@ -8,6 +8,7 @@ from pydbsp.stream import (
     StreamAddition,
     StreamHandle,
     UnaryOperator,
+    step_until_fixpoint,
     step_until_fixpoint_and_return,
 )
 from pydbsp.stream.functions.linear import stream_elimination, stream_introduction
@@ -106,6 +107,19 @@ class LiftedDelay(Lift1[Stream[T], Stream[T]]):
         )
 
 
+def step_until_fixpoint_set_new_default_then_return[T](
+    zero_almost_anywhere_stream_integration: Integrate[T],
+) -> Stream[T]:
+    step_until_fixpoint(zero_almost_anywhere_stream_integration)
+
+    # Integrating a ZASS stream makes it not ZASS!
+    out = zero_almost_anywhere_stream_integration.output()
+    latest = out.latest()
+    out.set_default(latest)
+
+    return out
+
+
 class LiftedIntegrate(Lift1[Stream[T], Stream[T]]):
     """
     Lifts the Integrate operator to work on streams of streams.
@@ -114,7 +128,7 @@ class LiftedIntegrate(Lift1[Stream[T], Stream[T]]):
     def __init__(self, stream: StreamHandle[Stream[T]]):
         super().__init__(
             stream,
-            lambda s: step_until_fixpoint_and_return(Integrate(StreamHandle(lambda: s))),
+            lambda s: step_until_fixpoint_set_new_default_then_return(Integrate(StreamHandle(lambda: s))),
             None,
         )
 
