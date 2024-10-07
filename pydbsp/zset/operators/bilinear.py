@@ -3,7 +3,6 @@ from typing import Optional, TypeVar
 from pydbsp.stream import (
     BinaryOperator,
     Lift2,
-    LiftedGroupAdd,
     Stream,
     StreamAddition,
     StreamHandle,

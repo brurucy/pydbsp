@@ -85,10 +85,19 @@ class LazyZSet[T]:
 
 class LazyZSetAddition[T](AbelianGroupOperation[LazyZSet[T]]):
     def add(self, a: LazyZSet[T], b: LazyZSet[T]) -> LazyZSet[T]:
+        if a.is_identity():
+            return b
+
+        if b.is_identity():
+            return a
+
         result = LazyZSet(a.inner + b.inner)
         return result
 
     def neg(self, a: LazyZSet[T]) -> LazyZSet[T]:
+        if a.is_identity():
+            return a
+
         group = ZSetAddition[T]()
         return LazyZSet([group.neg(zset) for zset in a])
 

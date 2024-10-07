@@ -65,9 +65,7 @@ def test_H() -> None:
 
     id = H(test_graph, test_graph)
 
-    # No change
     assert id == group.identity()
-    # New
     diff_neg = group.neg(create_test_lazy_zset_graph(1))
     diff_neg_times_two = group.add(diff_neg, diff_neg)
 
