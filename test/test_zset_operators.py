@@ -1,6 +1,11 @@
 from typing import List, Set, Tuple
 
-from pydbsp.algorithms.graph_reachability import Edge, GraphZSet, IncrementalGraphReachability
+from pydbsp.algorithms.graph_reachability import (
+    Edge,
+    GraphZSet,
+    IncrementalGraphReachability,
+    IndexedIncrementalGraphReachability,
+)
 from pydbsp.stream import (
     Stream,
     StreamAddition,
@@ -186,9 +191,9 @@ def test_lifted_lifted_delta_join() -> None:
     empty_zset = inner_group.identity()
     assert from_stream_of_streams_into_list_of_lists(joined_s) == [
         [empty_zset],
-        s1.to_list(),
-        s2.to_list(),
-        s3.to_list(),
+        s1.to_list() + [empty_zset],
+        s2.to_list() + [empty_zset],
+        s3.to_list() + [empty_zset],
     ]
 
 
@@ -208,23 +213,30 @@ def test_incremental_transitive_closure() -> None:
     s_h = StreamHandle(lambda: s)
 
     op = IncrementalGraphReachability(s_h)
+    op_i = IndexedIncrementalGraphReachability(s_h)
 
     s.send(create_zset_from_edges([(1, 2)]))
     step_until_fixpoint(op)
+    step_until_fixpoint(op_i)
+
     expected_integrated_state = create_zset_from_edges([(0, 1), (1, 2), (0, 2)])
     actual_integrated_state = stream_elimination(op.output())
     assert actual_integrated_state == expected_integrated_state
 
     s.send(ZSet({(0, 1): -1}))
     step_until_fixpoint(op)
+    step_until_fixpoint(op_i)
+
     expected_integrated_state = create_zset_from_edges([(1, 2)])
     actual_integrated_state = stream_elimination(op.output())
     assert actual_integrated_state == expected_integrated_state
 
     s.send(ZSet({(2, 3): 1}))
     step_until_fixpoint(op)
+    step_until_fixpoint(op_i)
+
     expected_integrated_state = create_zset_from_edges([(1, 2), (2, 3), (1, 3)])
-    actual_integrated_state = stream_elimination(op.output())
+    actual_integrated_state = stream_elimination(op_i.output())
     assert actual_integrated_state == expected_integrated_state
 
     s.send(ZSet({(3, 4): 1}))

@@ -196,9 +196,9 @@ def test_lifted_lifted_delta_join() -> None:
     empty_zset = inner_group.identity()
     assert from_stream_of_streams_into_list_of_lists(joined_s) == [
         [empty_zset],
-        s1.to_list(),
-        s2.to_list(),
-        s3.to_list(),
+        s1.to_list() + [empty_zset],
+        s2.to_list() + [empty_zset],
+        s3.to_list() + [empty_zset],
     ]
 
 
