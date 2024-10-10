@@ -1,11 +1,9 @@
-from typing import Dict, Generic, Iterable, Tuple, TypeVar
+from typing import Dict, Iterable, Tuple
 
 from pydbsp.core import AbelianGroupOperation
 
-T = TypeVar("T")
 
-
-class ZSet(Generic[T]):
+class ZSet[T]:
     """
     Represents a Z-set, a generalization of multisets with integer weights.
     Elements can have positive, negative, or zero weights.
@@ -53,7 +51,7 @@ class ZSet(Generic[T]):
         self.inner[key] = value
 
 
-class ZSetAddition(Generic[T], AbelianGroupOperation[ZSet[T]]):
+class ZSetAddition[T](AbelianGroupOperation[ZSet[T]]):
     """
     Defines addition operation for Z-sets, forming an Abelian group.
     """

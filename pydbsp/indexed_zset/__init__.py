@@ -1,5 +1,5 @@
 from bisect import bisect_right, insort
-from typing import Callable, Dict, Generator, Generic, Iterable, Iterator, List, Set, Tuple, TypeVar
+from typing import Callable, Dict, Generator, Iterable, Iterator, List, Set, Tuple, TypeVar
 
 from pydbsp.core import AbelianGroupOperation
 from pydbsp.zset import ZSetAddition
@@ -7,9 +7,9 @@ from pydbsp.zset import ZSetAddition
 T = TypeVar("T")
 
 
-class AppendOnlySpine(Generic[T]):
+class AppendOnlySpine[T]:
     """
-    A append-only flat B-Tree. Borrowed from `https://github.com/grantjenks/python-sortedcontainers` and `https://github.com/brurucy/indexset`. Only for internal use.
+    An append-only flat B-Tree. Borrowed from `https://github.com/grantjenks/python-sortedcontainers` and `https://github.com/brurucy/indexset`. Only for internal use.
     """
 
     _len: int
@@ -93,7 +93,7 @@ I = TypeVar("I")
 Indexer = Callable[[T], I]
 
 
-class IndexedZSet(Generic[I, T]):
+class IndexedZSet[I, T]:
     """
     Represents a Z-set, with a B-Tree index. See :func:`~pydbsp.zset.ZSet`.
     """
@@ -149,7 +149,7 @@ class IndexedZSet(Generic[I, T]):
         self.index.add(indexed_value)
 
 
-class IndexedZSetAddition(Generic[I, T], AbelianGroupOperation[IndexedZSet[I, T]]):
+class IndexedZSetAddition[I, T](AbelianGroupOperation[IndexedZSet[I, T]]):
     inner_group: ZSetAddition[T]
     indexer: Indexer[T, I]
 
