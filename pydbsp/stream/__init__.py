@@ -14,28 +14,27 @@ class Stream[T]:
     """
 
     timestamp: int
-    inner: OrderedDict[int, T]
-    default: T
-    default_changes: OrderedDict[int, T]
+    inner: List[T]
     group_op: AbelianGroupOperation[T]
     identity: bool
+    default: T
 
     def __init__(self, group_op: AbelianGroupOperation[T]) -> None:
-        self.inner = OrderedDict()
+        self.inner = []
         self.group_op = group_op
         self.timestamp = -1
         self.identity = True
         self.default = group_op.identity()
-        self.default_changes = OrderedDict()
-        self.default_changes[0] = self.default
         self.send(self.default)
 
     def send(self, element: T) -> None:
         """Adds an element to the stream and increments the timestamp."""
-        self.timestamp += 1
-        if element != self.default:
+        id = self.group().identity()
+        if element != id:
             self.identity = False
-            self.inner[self.timestamp] = element
+
+        self.inner.append(element)
+        self.timestamp += 1
 
     def group(self) -> AbelianGroupOperation[T]:
         """Returns the Abelian group operation associated with this stream."""
@@ -46,14 +45,10 @@ class Stream[T]:
         return self.timestamp
 
     def __iter__(self) -> Iterator[T]:
-        for i in range(self.timestamp + 1):
-            yield self[i]
+        return self.inner.__iter__()
 
     def __repr__(self) -> str:
-        return str(self.to_list())
-
-    def to_list(self) -> List[T]:
-        return [self[i] for i in range(self.timestamp + 1)]
+        return self.inner.__repr__()
 
     def set_default(self, new_default: T):
         """
@@ -65,23 +60,21 @@ class Stream[T]:
 
         This is used in very specific scenarios. See the `LiftedIntegrate` implementation.
         """
-        if new_default != self.default:
-            self.default = new_default
-            self.default_changes[self.timestamp + 1] = new_default
+        self.default = new_default
 
     def __getitem__(self, timestamp: int) -> T:
         """Returns the element at the given timestamp."""
         if timestamp < 0:
             raise ValueError("Timestamp cannot be negative")
 
-        while timestamp > self.timestamp:
-            self.send(self.default)
+        if timestamp <= self.current_time():
+            return self.inner.__getitem__(timestamp)
 
-        if timestamp in self.inner:
-            return self.inner[timestamp]
+        elif timestamp > self.current_time():
+            while timestamp > self.current_time():
+                self.send(self.default)
 
-        default_timestamp = max((t for t in self.default_changes if t <= timestamp), default=0)
-        return self.default_changes[default_timestamp]
+        return self.__getitem__(timestamp)
 
     def latest(self) -> T:
         """Returns the most recent element."""
@@ -89,6 +82,9 @@ class Stream[T]:
 
     def is_identity(self) -> bool:
         return self.identity
+
+    def to_list(self) -> List[T]:
+        return self.inner
 
     def __eq__(self, other: object) -> bool | NotImplementedType:
         """
@@ -108,7 +104,7 @@ class Stream[T]:
         if self_timestamp != other_timestamp:
             return False
 
-        return all(self[i] == other[i] for i in range(self.timestamp + 1))  # type: ignore
+        return self.inner == other.inner  # type: ignore
 
 
 T = TypeVar("T")
