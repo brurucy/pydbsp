@@ -169,30 +169,14 @@ class DeltaLiftedDeltaLiftedJoin(BinaryOperator[Stream[ZSet[T]], Stream[ZSet[R]]
         self.integrated_lift_integrated_stream_a.step()
         self.integrated_stream_b.step()
         self.delayed_integrated_stream_b.step()
-        print(f"Without indexing lift int: {self.lift_integrated_stream_b.input_a().latest()}")
-        print(f"Without indexing lift int: {self.lift_integrated_stream_b.output().latest()}")
         self.lift_integrated_stream_b.step()
         self.integrated_lift_integrated_stream_b.step()
         self.lift_delayed_integrated_lift_integrated_stream_b.step()
-        print(f"Without indexing lift del: {self.lift_delayed_lift_integrated_stream_b.input_a().latest()}")
-        print(f"Without indexing lift del: {self.lift_delayed_lift_integrated_stream_b.output().latest()}")
         self.lift_delayed_lift_integrated_stream_b.step()
         self.join_1.step()
-        print(
-            f"Without indexing Join 1:\n\tLeft: {self.join_1.input_a().latest().to_list()}\n\tRight:{self.join_1.input_b().latest().to_list()}"
-        )
         self.join_2.step()
-        print(
-            f"Without indexing Join 2:\n\tLeft: {self.join_2.input_a().latest().to_list()}\n\tRight:{self.join_2.input_b().latest().to_list()}"
-        )
         self.join_3.step()
-        print(
-            f"Without indexing Join 3:\n\tLeft: {self.join_3.input_a().latest().to_list()}\n\tRight:{self.join_3.input_b().latest().to_list()}"
-        )
         self.join_4.step()
-        print(
-            f"Without indexing Join 4:\n\tLeft: {self.join_4.input_a().latest().to_list()}\n\tRight:{self.join_4.input_b().latest().to_list()}"
-        )
 
         group = self.output().group()
         sum_1 = group.add(self.join_1.output().latest(), self.join_2.output().latest())

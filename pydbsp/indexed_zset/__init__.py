@@ -109,13 +109,8 @@ class IndexedZSet[I, T]:
         self.index = AppendOnlySpine()
         self.indexer = indexer
 
-        for value in self.inner.keys():
-            indexed_value = self.indexer(value)
-            if indexed_value in self.index_to_value:
-                self.index_to_value[indexed_value].add(value)
-            else:
-                self.index_to_value[indexed_value] = {value}
-                self.index.add(indexed_value)
+        for key, value in self.inner.items():
+            self[key] = value
 
     def items(self) -> Iterable[Tuple[T, int]]:
         return self.inner.items()
@@ -158,9 +153,6 @@ class IndexedZSetAddition[I, T](AbelianGroupOperation[IndexedZSet[I, T]]):
         self.indexer = indexer
 
     def add(self, a: IndexedZSet[I, T], b: IndexedZSet[I, T]) -> IndexedZSet[I, T]:
-        if len(b.inner) == 0:
-            return a
-
         c = {k: v for k, v in a.inner.items() if v != 0}
         for k, v in b.inner.items():
             if k in c:

@@ -22,6 +22,8 @@ class LiftedIndex[I, T](Lift1[ZSet[T], IndexedZSet[I, T]]):
 class LiftedLiftedIndex[I, T](Lift1[Stream[ZSet[T]], Stream[IndexedZSet[I, T]]]):
     """Creates a stream where the output at each timestamp is the input ZSet indexed according to some indexing function"""
 
+    indexer: Indexer[T, I]
+
     def __init__(self, stream: Optional[StreamHandle[Stream[ZSet[T]]]], indexer: Indexer[T, I]):
         self.indexer = indexer
         innermost_group: ZSetAddition[T] = ZSetAddition()

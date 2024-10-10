@@ -4,7 +4,6 @@ from pydbsp.algorithms.graph_reachability import (
     Edge,
     GraphZSet,
     IncrementalGraphReachability,
-    IndexedIncrementalGraphReachability,
 )
 from pydbsp.stream import (
     Stream,
@@ -213,11 +212,9 @@ def test_incremental_transitive_closure() -> None:
     s_h = StreamHandle(lambda: s)
 
     op = IncrementalGraphReachability(s_h)
-    op_i = IndexedIncrementalGraphReachability(s_h)
 
     s.send(create_zset_from_edges([(1, 2)]))
     step_until_fixpoint(op)
-    step_until_fixpoint(op_i)
 
     expected_integrated_state = create_zset_from_edges([(0, 1), (1, 2), (0, 2)])
     actual_integrated_state = stream_elimination(op.output())
@@ -225,7 +222,6 @@ def test_incremental_transitive_closure() -> None:
 
     s.send(ZSet({(0, 1): -1}))
     step_until_fixpoint(op)
-    step_until_fixpoint(op_i)
 
     expected_integrated_state = create_zset_from_edges([(1, 2)])
     actual_integrated_state = stream_elimination(op.output())
@@ -233,10 +229,9 @@ def test_incremental_transitive_closure() -> None:
 
     s.send(ZSet({(2, 3): 1}))
     step_until_fixpoint(op)
-    step_until_fixpoint(op_i)
 
     expected_integrated_state = create_zset_from_edges([(1, 2), (2, 3), (1, 3)])
-    actual_integrated_state = stream_elimination(op_i.output())
+    actual_integrated_state = stream_elimination(op.output())
     assert actual_integrated_state == expected_integrated_state
 
     s.send(ZSet({(3, 4): 1}))

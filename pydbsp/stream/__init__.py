@@ -467,10 +467,12 @@ class StreamAddition(AbelianGroupOperation[Stream[T]]):
 
         lifted_group_add = LiftedGroupAdd(handle_a, handle_b)
         out = step_until_fixpoint_and_return(lifted_group_add)
-        if a.is_identity():
+        a_group_identity = a.group().identity()
+        if a.is_identity() and a_group_identity == a.default:
             out.default = b.default
 
-        if b.is_identity():
+        b_group_identity = b.group().identity()
+        if b.is_identity() and b_group_identity == b.default:
             out.default = a.default
 
         return out
