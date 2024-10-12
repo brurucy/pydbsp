@@ -25,10 +25,6 @@ seaborn = "^0.13.2"
 pandas = "^2.2.2"
 ipywidgets = "^8.1.5"
 
-
-[tool.poetry.group.lazy.dependencies]
-pandas = "^2.2.3"
-
 [tool.ruff]
 line-length = 120
 src = [ "pydbsp" ]
