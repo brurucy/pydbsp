@@ -17,3 +17,7 @@ def project[T, R](lazy_zset: LazyZSet[T], f: Projection[T, R]) -> LazyZSet[R]:
     of the input Lazy Z-set. Weights of elements mapping to the same value are summed.
     """
     return LazyZSet([zset_project(zset, f) for zset in lazy_zset])
+
+
+def coalesce[T](lazy_zset: LazyZSet[T]) -> LazyZSet[T]:
+    return LazyZSet([lazy_zset.coalesce()])

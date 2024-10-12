@@ -1,6 +1,6 @@
 from typing import List, Set, Tuple
 
-from pydbsp.algorithms.graph_reachability import Edge
+from pydbsp.algorithms.graph_reachability import Edge, LazyIncrementalGraphReachability
 from pydbsp.lazy_zset import LazyZSet, LazyZSetAddition
 from pydbsp.lazy_zset.operators.bilinear import DeltaLiftedDeltaLiftedJoin, LiftedJoin, LiftedLiftedJoin
 from pydbsp.lazy_zset.operators.linear import LiftedLiftedProject, LiftedLiftedSelect, LiftedProject, LiftedSelect
@@ -210,3 +210,66 @@ def create_lazy_zset_from_edges(edges: List[Edge]) -> LazyGraphZSet:
         output.inner[edge] = 1
 
     return LazyZSet([output])
+
+
+def test_incremental_transitive_closure() -> None:
+    n = 1
+    s = create_lazy_zset_graph_stream(n)
+    s_h = StreamHandle(lambda: s)
+    op = LazyIncrementalGraphReachability(s_h)
+    op.step()
+    s.send(create_lazy_zset_from_edges([(1, 2)]))
+    step_until_fixpoint(op)
+    expected_integrated_state = create_lazy_zset_from_edges([(0, 1), (1, 2), (0, 2)])
+    actual_integrated_state = stream_elimination(op.output())
+    assert actual_integrated_state == expected_integrated_state
+    s.send(LazyZSet([ZSet({(0, 1): -1})]))
+    step_until_fixpoint(op)
+    expected_integrated_state = create_lazy_zset_from_edges([(1, 2)])
+    actual_integrated_state = stream_elimination(op.output())
+    assert actual_integrated_state.coalesce() == expected_integrated_state.coalesce()
+    s.send(LazyZSet([ZSet({(2, 3): 1})]))
+    step_until_fixpoint(op)
+    expected_integrated_state = create_lazy_zset_from_edges([(1, 2), (2, 3), (1, 3)])
+    actual_integrated_state = stream_elimination(op.output())
+    assert actual_integrated_state == expected_integrated_state
+    s.send(LazyZSet([ZSet({(3, 4): 1})]))
+    step_until_fixpoint(op)
+    expected_integrated_state = create_lazy_zset_from_edges([(1, 2), (2, 3), (1, 3), (3, 4), (1, 4), (2, 4)])
+    actual_integrated_state = stream_elimination(op.output())
+    assert actual_integrated_state == expected_integrated_state
+    s.send(LazyZSet([ZSet({(0, 1): 1})]))
+    step_until_fixpoint(op)
+    expected_integrated_state = create_lazy_zset_from_edges(
+        [(0, 1), (1, 2), (2, 3), (1, 3), (3, 4), (1, 4), (2, 4), (0, 2), (0, 3), (0, 4)]
+    )
+    actual_integrated_state = stream_elimination(op.output())
+    assert actual_integrated_state == expected_integrated_state
+    s.send(LazyZSet([ZSet({(0, 1): -1})]))
+    step_until_fixpoint(op)
+    expected_integrated_state = create_lazy_zset_from_edges(
+        [
+            (1, 2),
+            (2, 3),
+            (1, 3),
+            (3, 4),
+            (1, 4),
+            (2, 4),
+        ]
+    )
+    actual_integrated_state = stream_elimination(op.output())
+    assert actual_integrated_state == expected_integrated_state
+    s.send(LazyZSet([ZSet({(0, 1): 1})]))
+    step_until_fixpoint(op)
+    expected_integrated_state = create_lazy_zset_from_edges(
+        [(0, 1), (1, 2), (2, 3), (1, 3), (3, 4), (1, 4), (2, 4), (0, 2), (0, 3), (0, 4)]
+    )
+    actual_integrated_state = stream_elimination(op.output())
+    assert actual_integrated_state == expected_integrated_state
+    s.send(LazyZSet([ZSet({(0, 1): -1})]))
+    step_until_fixpoint(op)
+    expected_integrated_state = create_lazy_zset_from_edges([(1, 2), (2, 3), (1, 3), (3, 4), (1, 4), (2, 4)])
+    actual_integrated_state = stream_elimination(op.output())
+    assert actual_integrated_state == expected_integrated_state
+
+    assert False
