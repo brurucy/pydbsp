@@ -5,7 +5,6 @@ from pydbsp.lazy_zset.functions.bilinear import join
 from pydbsp.stream import (
     BinaryOperator,
     Lift2,
-    LiftedGroupAdd,
     Stream,
     StreamAddition,
     StreamHandle,

@@ -141,7 +141,7 @@ class DeltaLiftedDeltaLiftedJoin(BinaryOperator[Stream[ZSet[T]], Stream[ZSet[R]]
         self.f = f
         self.frontier_a = 0
         self.frontier_b = 0
-        inner_group: ZSetAddition[S] = ZSetAddition()
+        inner_group = ZSetAddition[S]()
         group: StreamAddition[ZSet[S]] = StreamAddition(inner_group)  # type: ignore
 
         self.output_stream = Stream(group)
@@ -181,7 +181,8 @@ class DeltaLiftedDeltaLiftedJoin(BinaryOperator[Stream[ZSet[T]], Stream[ZSet[R]]
         group = self.output().group()
         sum_1 = group.add(self.join_1.output().latest(), self.join_2.output().latest())
         sum_2 = group.add(self.join_3.output().latest(), self.join_4.output().latest())
-        self.output_stream.send(group.add(sum_1, sum_2))
+        sum_3 = group.add(sum_1, sum_2)
+        self.output_stream.send(sum_3)
 
         self.frontier_a += 1
         self.frontier_b += 1

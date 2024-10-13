@@ -1,11 +1,9 @@
-from typing import Dict, Generic, Iterable, Tuple, TypeVar
+from typing import Dict, Iterable, Tuple
 
 from pydbsp.core import AbelianGroupOperation
 
-T = TypeVar("T")
 
-
-class ZSet(Generic[T]):
+class ZSet[T]:
     """
     Represents a Z-set, a generalization of multisets with integer weights.
     Elements can have positive, negative, or zero weights.
@@ -53,7 +51,7 @@ class ZSet(Generic[T]):
         self.inner[key] = value
 
 
-class ZSetAddition(Generic[T], AbelianGroupOperation[ZSet[T]]):
+class ZSetAddition[T](AbelianGroupOperation[ZSet[T]]):
     """
     Defines addition operation for Z-sets, forming an Abelian group.
     """
@@ -63,18 +61,17 @@ class ZSetAddition(Generic[T], AbelianGroupOperation[ZSet[T]]):
         Adds two Z-sets by summing weights of common elements.
         Elements with resulting zero weight are removed.
         """
-        c = {k: v for k, v in a.inner.items() if v != 0}
-        for k, v in b.inner.items():
-            if k in c:
-                new_weight = c[k] + v
-                if new_weight != 0:
-                    c[k] = new_weight
-                else:
-                    del c[k]
-            else:
-                c[k] = v
+        result = a.inner | b.inner
 
-        return ZSet(c)
+        for k, v in b.inner.items():
+            if k in a.inner:
+                new_weight = a.inner[k] + v
+                if new_weight == 0:
+                    del result[k]
+                else:
+                    result[k] = new_weight
+
+        return ZSet(result)
 
     def neg(self, a: ZSet[T]) -> ZSet[T]:
         """Returns the inverse of a Z-set by negating all weights."""

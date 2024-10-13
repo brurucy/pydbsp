@@ -14,7 +14,7 @@ class LiftedSortMergeJoin[I, T, R, S](Lift2[IndexedZSet[I, T], IndexedZSet[I, R]
         stream_b: Optional[StreamHandle[IndexedZSet[I, R]]],
         f: PostSortMergeJoinProjection[I, T, R, S],
     ):
-        super().__init__(stream_a, stream_b, lambda x, y: join_with_index(x, y, f), None)
+        super().__init__(stream_a, stream_b, lambda x, y: join_with_index(x, y, f), ZSetAddition[S]())
 
 
 class LiftedLiftedSortMergeJoin[I, T, R, S](
@@ -40,7 +40,7 @@ class LiftedLiftedSortMergeJoin[I, T, R, S](
             lambda x, y: step_until_fixpoint_and_return(
                 LiftedSortMergeJoin(StreamHandle(lambda: x), StreamHandle(lambda: y), f)
             ),
-            None,
+            StreamAddition(ZSetAddition[S]()),
         )
 
 
@@ -124,7 +124,7 @@ class DeltaLiftedDeltaLiftedSortMergeJoin[I, T, R, S](
         self.f = f
         self.frontier_a = 0
         self.frontier_b = 0
-        inner_group: ZSetAddition[S] = ZSetAddition()
+        inner_group = ZSetAddition[S]()
         group: StreamAddition[ZSet[S]] = StreamAddition(inner_group)
 
         self.output_stream = Stream(group)
@@ -164,7 +164,8 @@ class DeltaLiftedDeltaLiftedSortMergeJoin[I, T, R, S](
         group = self.output().group()
         sum_1 = group.add(self.join_1.output().latest(), self.join_2.output().latest())
         sum_2 = group.add(self.join_3.output().latest(), self.join_4.output().latest())
-        self.output_stream.send(group.add(sum_1, sum_2))
+        sum_3 = group.add(sum_1, sum_2)
+        self.output_stream.send(sum_3)
 
         self.frontier_a += 1
         self.frontier_b += 1

@@ -40,10 +40,10 @@ def test_delay() -> None:
 
     delayed_s = step_until_fixpoint_and_return(operator)
 
-    delayed_list = deque(s.inner)
+    delayed_list = deque(s.to_list())
     delayed_list.appendleft(s.group().identity())
 
-    assert delayed_s.inner == list(delayed_list)
+    assert delayed_s.to_list() == list(delayed_list)
     assert delayed_s.current_time() == s.current_time() + 1
 
 
@@ -54,9 +54,9 @@ def test_lifted_group_negate() -> None:
 
     negated_s = step_until_fixpoint_and_return(operator)
 
-    negated_list = [s.group().neg(i) for i in s.inner]
+    negated_list = [s.group().neg(i) for i in s.to_list()]
 
-    assert negated_s.inner == negated_list
+    assert negated_s.to_list() == negated_list
     assert negated_s.current_time() == s.current_time()
 
 
@@ -67,9 +67,9 @@ def test_lifted_group_add() -> None:
 
     doubled_s = step_until_fixpoint_and_return(operator)
 
-    doubled_list = [s.group().add(i, i) for i in s.inner]
+    doubled_list = [s.group().add(i, i) for i in s.to_list()]
 
-    assert doubled_s.inner == doubled_list  # type: ignore
+    assert doubled_s.to_list() == doubled_list  # type: ignore
     assert doubled_s.current_time() == s.current_time()  # type: ignore
 
 
@@ -81,10 +81,10 @@ def test_differentiate() -> None:
     diffed_s = step_until_fixpoint_and_return(operator)
 
     diffed_list = [
-        s.group().add(i, s.group().neg(s.inner[idx - 1])) if idx > 0 else 0 for (idx, i) in enumerate(s.inner)
+        s.group().add(i, s.group().neg(s.to_list()[idx - 1])) if idx > 0 else 0 for (idx, i) in enumerate(s.to_list())
     ]
 
-    assert diffed_s.inner == diffed_list
+    assert diffed_s.to_list() == diffed_list
     assert diffed_s.current_time() == s.current_time()
 
 
@@ -95,9 +95,9 @@ def test_integrate() -> None:
 
     integrated_s = step_until_fixpoint_and_return(operator)
 
-    integrated_list = [sum(s.inner[0 : idx + 1]) for (idx, _) in enumerate(s)]
+    integrated_list = [sum(s.to_list()[0 : idx + 1]) for (idx, _) in enumerate(s.to_list())]
 
-    assert integrated_s.inner == integrated_list
+    assert integrated_s.to_list() == integrated_list
     assert integrated_s.current_time() == s.current_time()
 
 
@@ -128,11 +128,11 @@ def test_abelian_property_of_stream_addition():
 
 
 def from_stream_into_list[T](s: Stream[T]) -> List[T]:
-    return s.inner
+    return s.to_list()
 
 
 def from_stream_of_streams_into_list_of_lists[T](xs: Stream[Stream[T]]) -> List[List[T]]:
-    return [from_stream_into_list(s) for s in xs.inner]
+    return [from_stream_into_list(s) for s in xs.to_list()]
 
 
 def test_delay_stream_of_streams() -> None:
@@ -194,7 +194,7 @@ def test_integrate_stream_of_streams() -> None:
     operator: Integrate[Stream[int]] = Integrate(s_handle)
 
     integrated_s = step_until_fixpoint_and_return(operator)
-    integrated_list = [[0, 0, 0, 0, 0], [0, 0, 1, 2, 3], [0, 2, 4, 6, 8], [0, 6, 9, 12, 15], [0, 12, 16, 20, 24]]
+    integrated_list = [[0], [0, 0, 1, 2, 3], [0, 2, 4, 6, 8], [0, 6, 9, 12, 15], [0, 12, 16, 20, 24]]
     assert from_stream_of_streams_into_list_of_lists(integrated_s) == integrated_list
     assert integrated_s.current_time() == s.current_time()
 
@@ -268,7 +268,7 @@ def test_stream_elimination() -> None:
 def test_lifted_stream_introduction_and_elimination() -> None:
     n = 10
     s = create_integer_stream_up_to(n)
-    i = sum(s.inner)
+    i = sum(s.to_list())
 
     s_handle = StreamHandle(lambda: s)
     intro_operator: LiftedStreamIntroduction[int] = LiftedStreamIntroduction(s_handle)
@@ -278,6 +278,6 @@ def test_lifted_stream_introduction_and_elimination() -> None:
     step_until_fixpoint_and_return(elim_operator)
 
     assert s == elim_operator.output_handle().get()
-    assert i == sum(elim_operator.output_handle().get().inner)
+    assert i == sum(elim_operator.output_handle().get().to_list())
     assert i == stream_elimination(stream_elimination(intro_operator.output_handle().get()))
     assert stream_elimination(intro_operator.output_handle().get()).group() == s.group()

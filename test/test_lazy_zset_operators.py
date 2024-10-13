@@ -196,9 +196,9 @@ def test_lifted_lifted_delta_join() -> None:
     empty_zset = inner_group.identity()
     assert from_stream_of_streams_into_list_of_lists(joined_s) == [
         [empty_zset],
-        s1.inner + [empty_zset],
-        s2.inner + [empty_zset],
-        s3.inner + [empty_zset],
+        s1.to_list(),
+        s2.to_list(),
+        s3.to_list(),
     ]
 
 
@@ -216,34 +216,28 @@ def test_incremental_transitive_closure() -> None:
     n = 1
     s = create_lazy_zset_graph_stream(n)
     s_h = StreamHandle(lambda: s)
-
     op = LazyIncrementalGraphReachability(s_h)
     op.step()
-
     s.send(create_lazy_zset_from_edges([(1, 2)]))
     step_until_fixpoint(op)
     expected_integrated_state = create_lazy_zset_from_edges([(0, 1), (1, 2), (0, 2)])
     actual_integrated_state = stream_elimination(op.output())
     assert actual_integrated_state == expected_integrated_state
-
     s.send(LazyZSet([ZSet({(0, 1): -1})]))
     step_until_fixpoint(op)
     expected_integrated_state = create_lazy_zset_from_edges([(1, 2)])
     actual_integrated_state = stream_elimination(op.output())
     assert actual_integrated_state.coalesce() == expected_integrated_state.coalesce()
-
     s.send(LazyZSet([ZSet({(2, 3): 1})]))
     step_until_fixpoint(op)
     expected_integrated_state = create_lazy_zset_from_edges([(1, 2), (2, 3), (1, 3)])
     actual_integrated_state = stream_elimination(op.output())
     assert actual_integrated_state == expected_integrated_state
-
     s.send(LazyZSet([ZSet({(3, 4): 1})]))
     step_until_fixpoint(op)
     expected_integrated_state = create_lazy_zset_from_edges([(1, 2), (2, 3), (1, 3), (3, 4), (1, 4), (2, 4)])
     actual_integrated_state = stream_elimination(op.output())
     assert actual_integrated_state == expected_integrated_state
-
     s.send(LazyZSet([ZSet({(0, 1): 1})]))
     step_until_fixpoint(op)
     expected_integrated_state = create_lazy_zset_from_edges(
@@ -251,7 +245,6 @@ def test_incremental_transitive_closure() -> None:
     )
     actual_integrated_state = stream_elimination(op.output())
     assert actual_integrated_state == expected_integrated_state
-
     s.send(LazyZSet([ZSet({(0, 1): -1})]))
     step_until_fixpoint(op)
     expected_integrated_state = create_lazy_zset_from_edges(
@@ -266,7 +259,6 @@ def test_incremental_transitive_closure() -> None:
     )
     actual_integrated_state = stream_elimination(op.output())
     assert actual_integrated_state == expected_integrated_state
-
     s.send(LazyZSet([ZSet({(0, 1): 1})]))
     step_until_fixpoint(op)
     expected_integrated_state = create_lazy_zset_from_edges(
@@ -274,7 +266,6 @@ def test_incremental_transitive_closure() -> None:
     )
     actual_integrated_state = stream_elimination(op.output())
     assert actual_integrated_state == expected_integrated_state
-
     s.send(LazyZSet([ZSet({(0, 1): -1})]))
     step_until_fixpoint(op)
     expected_integrated_state = create_lazy_zset_from_edges([(1, 2), (2, 3), (1, 3), (3, 4), (1, 4), (2, 4)])

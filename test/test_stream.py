@@ -10,7 +10,7 @@ def test_stream() -> None:
     identity = group.identity()
 
     assert s.timestamp == 0
-    assert s.inner == [0]
+    assert s.to_list() == [0]
     assert s.group() == group
 
     assert s.latest() == identity

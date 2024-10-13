@@ -1,41 +1,41 @@
 import sys
 from abc import abstractmethod
 from types import NotImplementedType
-from typing import Callable, Generic, Iterator, List, Optional, Protocol, TypeVar, cast
+from typing import Callable, Iterator, List, Optional, OrderedDict, Protocol, TypeVar, cast
 
 from pydbsp.core import AbelianGroupOperation
-
-T = TypeVar("T")
 
 INFINITY = sys.maxsize
 
 
-class Stream(Generic[T]):
+class Stream[T]:
     """
     Represents a stream of elements from an Abelian group.
     """
 
     timestamp: int
-    inner: List[T]
+    inner: OrderedDict[int, T]
     group_op: AbelianGroupOperation[T]
     identity: bool
     default: T
+    default_changes: OrderedDict[int, T]
 
     def __init__(self, group_op: AbelianGroupOperation[T]) -> None:
-        self.inner = []
+        self.inner = OrderedDict()
         self.group_op = group_op
         self.timestamp = -1
         self.identity = True
         self.default = group_op.identity()
-        self.send(self.default)
+        self.default_changes = OrderedDict()
+        self.default_changes[0] = group_op.identity()
+        self.send(group_op.identity())
 
     def send(self, element: T) -> None:
         """Adds an element to the stream and increments the timestamp."""
-        id = self.group().identity()
-        if element != id:
+        if element != self.default:
+            self.inner[self.timestamp + 1] = element
             self.identity = False
 
-        self.inner.append(element)
         self.timestamp += 1
 
     def group(self) -> AbelianGroupOperation[T]:
@@ -47,7 +47,8 @@ class Stream(Generic[T]):
         return self.timestamp
 
     def __iter__(self) -> Iterator[T]:
-        return self.inner.__iter__()
+        for t in range(self.current_time() + 1):
+            yield self[t]
 
     def __repr__(self) -> str:
         return self.inner.__repr__()
@@ -63,6 +64,7 @@ class Stream(Generic[T]):
         This is used in very specific scenarios. See the `LiftedIntegrate` implementation.
         """
         self.default = new_default
+        self.default_changes[self.timestamp] = new_default
 
     def __getitem__(self, timestamp: int) -> T:
         """Returns the element at the given timestamp."""
@@ -70,7 +72,8 @@ class Stream(Generic[T]):
             raise ValueError("Timestamp cannot be negative")
 
         if timestamp <= self.current_time():
-            return self.inner.__getitem__(timestamp)
+            default_timestamp = max((t for t in self.default_changes if t < timestamp), default=0)
+            return self.inner.get(timestamp, self.default_changes[default_timestamp])
 
         elif timestamp > self.current_time():
             while timestamp > self.current_time():
@@ -84,6 +87,9 @@ class Stream(Generic[T]):
 
     def is_identity(self) -> bool:
         return self.identity
+
+    def to_list(self) -> List[T]:
+        return list(iter(self))
 
     def __eq__(self, other: object) -> bool | NotImplementedType:
         """
@@ -106,10 +112,12 @@ class Stream(Generic[T]):
         return self.inner == other.inner  # type: ignore
 
 
+T = TypeVar("T")
+
 StreamReference = Callable[[], Stream[T]]
 
 
-class StreamHandle(Generic[T]):
+class StreamHandle[T]:
     """A handle to a stream, allowing lazy access."""
 
     ref: StreamReference[T]
@@ -360,10 +368,12 @@ class StreamAddition(AbelianGroupOperation[Stream[T]]):
 
         lifted_group_add = LiftedGroupAdd(handle_a, handle_b)
         out = step_until_fixpoint_and_return(lifted_group_add)
-        if a.is_identity():
+        a_group_identity = a.group().identity()
+        if a.is_identity() and a_group_identity == a.default:
             out.default = b.default
 
-        if b.is_identity():
+        b_group_identity = b.group().identity()
+        if b.is_identity() and b_group_identity == b.default:
             out.default = a.default
 
         return out
