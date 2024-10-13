@@ -33,9 +33,9 @@ class Stream[T]:
     def send(self, element: T) -> None:
         """Adds an element to the stream and increments the timestamp."""
         if element != self.default:
+            self.inner[self.timestamp + 1] = element
             self.identity = False
 
-        self.inner[self.timestamp + 1] = element
         self.timestamp += 1
 
     def group(self) -> AbelianGroupOperation[T]:
@@ -110,105 +110,6 @@ class Stream[T]:
             return False
 
         return self.inner == other.inner  # type: ignore
-
-
-# class Stream[T]:
-#     """
-#     Represents a stream of elements from an Abelian group.
-#     """
-
-#     timestamp: int
-#     inner: List[T]
-#     group_op: AbelianGroupOperation[T]
-#     identity: bool
-#     default: T
-
-#     def __init__(self, group_op: AbelianGroupOperation[T]) -> None:
-#         self.inner = []
-#         self.group_op = group_op
-#         self.timestamp = -1
-#         self.identity = True
-#         self.default = group_op.identity()
-#         self.send(self.default)
-
-#     def send(self, element: T) -> None:
-#         """Adds an element to the stream and increments the timestamp."""
-#         id = self.group().identity()
-#         if element != id:
-#             self.identity = False
-
-#         self.inner.append(element)
-#         self.timestamp += 1
-
-#     def group(self) -> AbelianGroupOperation[T]:
-#         """Returns the Abelian group operation associated with this stream."""
-#         return self.group_op
-
-#     def current_time(self) -> int:
-#         """Returns the timestamp of the most recently arrived element."""
-#         return self.timestamp
-
-#     def __iter__(self) -> Iterator[T]:
-#         return self.inner.__iter__()
-
-#     def __repr__(self) -> str:
-#         return self.inner.__repr__()
-
-#     def set_default(self, new_default: T):
-#         """
-#         Warning! changing this can break causality. Stay clear of this function unless you REALLY know what you are
-#         doing.
-
-#         This function effectively "freezes" the stream to strictly return a not-identity value when a timestamp
-#         beyond its frontier is requested.
-
-#         This is used in very specific scenarios. See the `LiftedIntegrate` implementation.
-#         """
-#         self.default = new_default
-
-#     def __getitem__(self, timestamp: int) -> T:
-#         """Returns the element at the given timestamp."""
-#         if timestamp < 0:
-#             raise ValueError("Timestamp cannot be negative")
-
-#         if timestamp <= self.current_time():
-#             return self.inner.__getitem__(timestamp)
-
-#         elif timestamp > self.current_time():
-#             while timestamp > self.current_time():
-#                 self.send(self.default)
-
-#         return self.__getitem__(timestamp)
-
-#     def latest(self) -> T:
-#         """Returns the most recent element."""
-#         return self.__getitem__(self.current_time())
-
-#     def is_identity(self) -> bool:
-#         return self.identity
-
-#     def to_list(self) -> List[T]:
-#         return self.inner
-
-#     def __eq__(self, other: object) -> bool | NotImplementedType:
-#         """
-#         Compares this stream with another, considering all timestamps up to the latest.
-#         """
-#         if not isinstance(other, Stream):
-#             return NotImplemented
-
-#         if self.is_identity() and other.is_identity():
-#             return True
-
-#         cast(Stream[T], other)
-
-#         self_timestamp = self.current_time()
-#         other_timestamp = other.current_time()
-
-#         if self_timestamp != other_timestamp:
-#             return False
-
-#         return self.inner == other.inner  # type: ignore
 
 
 T = TypeVar("T")

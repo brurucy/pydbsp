@@ -153,16 +153,15 @@ class IndexedZSetAddition[I, T](AbelianGroupOperation[IndexedZSet[I, T]]):
         self.indexer = indexer
 
     def add(self, a: IndexedZSet[I, T], b: IndexedZSet[I, T]) -> IndexedZSet[I, T]:
-        c = {k: v for k, v in a.inner.items() if v != 0}
+        c = a.inner | b.inner
+
         for k, v in b.inner.items():
-            if k in c:
-                new_weight = c[k] + v
-                if new_weight != 0:
-                    c[k] = new_weight
-                else:
+            if k in a.inner:
+                new_weight = a.inner[k] + v
+                if new_weight == 0:
                     del c[k]
-            else:
-                c[k] = v
+                else:
+                    c[k] = new_weight
 
         return IndexedZSet(c, self.indexer)
 

@@ -94,6 +94,18 @@ class Integrate(UnaryOperator[T, T]):
         return self.output().current_time() == self.input_a().current_time()
 
 
+def step_until_fixpoint_set_new_default_then_return[T](
+    operator: Integrate[T] | Delay[T],
+) -> Stream[T]:
+    step_until_fixpoint(operator)
+
+    out = operator.output_handle().get()
+    latest = out.latest()
+    out.set_default(latest)
+
+    return out
+
+
 class LiftedDelay(Lift1[Stream[T], Stream[T]]):
     """
     Lifts the Delay operator to work on streams of streams.
@@ -102,22 +114,9 @@ class LiftedDelay(Lift1[Stream[T], Stream[T]]):
     def __init__(self, stream: StreamHandle[Stream[T]]):
         super().__init__(
             stream,
-            lambda s: step_until_fixpoint_and_return(Delay(StreamHandle(lambda: s))),
+            lambda s: step_until_fixpoint_set_new_default_then_return(Delay(StreamHandle(lambda: s))),
             None,
         )
-
-
-def step_until_fixpoint_set_new_default_then_return[T](
-    zero_almost_anywhere_stream_integration: Integrate[T],
-) -> Stream[T]:
-    step_until_fixpoint(zero_almost_anywhere_stream_integration)
-
-    # Integrating a ZASS stream makes it not ZASS!
-    out = zero_almost_anywhere_stream_integration.output()
-    latest = out.latest()
-    out.set_default(latest)
-
-    return out
 
 
 class LiftedIntegrate(Lift1[Stream[T], Stream[T]]):
@@ -139,11 +138,7 @@ class LiftedDifferentiate(Lift1[Stream[T], Stream[T]]):
     """
 
     def __init__(self, stream: StreamHandle[Stream[T]]):
-        super().__init__(
-            stream,
-            lambda s: step_until_fixpoint_and_return(Differentiate(StreamHandle(lambda: s))),
-            None,
-        )
+        super().__init__(stream, lambda s: step_until_fixpoint_and_return(Differentiate(StreamHandle(lambda: s))), None)
 
 
 class LiftedStreamIntroduction(Lift1[T, Stream[T]]):
@@ -154,11 +149,7 @@ class LiftedStreamIntroduction(Lift1[T, Stream[T]]):
     def __init__(self, stream: StreamHandle[T]) -> None:
         group = stream.get().group()
 
-        super().__init__(
-            stream,
-            lambda x: stream_introduction(x, group),
-            StreamAddition(group),
-        )
+        super().__init__(stream, lambda x: stream_introduction(x, group), StreamAddition(group))
 
 
 class LiftedStreamElimination(Lift1[Stream[T], T]):

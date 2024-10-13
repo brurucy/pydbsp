@@ -61,18 +61,17 @@ class ZSetAddition[T](AbelianGroupOperation[ZSet[T]]):
         Adds two Z-sets by summing weights of common elements.
         Elements with resulting zero weight are removed.
         """
-        c = {k: v for k, v in a.inner.items() if v != 0}
-        for k, v in b.inner.items():
-            if k in c:
-                new_weight = c[k] + v
-                if new_weight != 0:
-                    c[k] = new_weight
-                else:
-                    del c[k]
-            else:
-                c[k] = v
+        result = a.inner | b.inner
 
-        return ZSet(c)
+        for k, v in b.inner.items():
+            if k in a.inner:
+                new_weight = a.inner[k] + v
+                if new_weight == 0:
+                    del result[k]
+                else:
+                    result[k] = new_weight
+
+        return ZSet(result)
 
     def neg(self, a: ZSet[T]) -> ZSet[T]:
         """Returns the inverse of a Z-set by negating all weights."""

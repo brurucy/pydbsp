@@ -13,9 +13,7 @@ class LiftedCoalesce[T](Lift1[LazyZSet[T], LazyZSet[T]]):
 class LiftedLiftedCoalesce[T](Lift1[Stream[LazyZSet[T]], Stream[LazyZSet[T]]]):
     def __init__(self, stream: Optional[StreamHandle[Stream[LazyZSet[T]]]]):
         super().__init__(
-            stream,
-            lambda x: step_until_fixpoint_and_return(LiftedCoalesce(StreamHandle(lambda: x))),
-            None,
+            stream, lambda x: step_until_fixpoint_and_return(LiftedCoalesce(StreamHandle(lambda: x))), None
         )
 
 
@@ -27,9 +25,7 @@ class LiftedSelect[T](Lift1[LazyZSet[T], LazyZSet[T]]):
 class LiftedLiftedSelect[T](Lift1[Stream[LazyZSet[T]], Stream[LazyZSet[T]]]):
     def __init__(self, stream: Optional[StreamHandle[Stream[LazyZSet[T]]]], p: Cmp[T]):
         super().__init__(
-            stream,
-            lambda x: step_until_fixpoint_and_return(LiftedSelect(StreamHandle(lambda: x), p)),
-            None,
+            stream, lambda x: step_until_fixpoint_and_return(LiftedSelect(StreamHandle(lambda: x), p)), None
         )
 
 
@@ -41,7 +37,5 @@ class LiftedProject[T, R](Lift1[LazyZSet[T], LazyZSet[R]]):
 class LiftedLiftedProject[T, R](Lift1[Stream[LazyZSet[T]], Stream[LazyZSet[R]]]):
     def __init__(self, stream: Optional[StreamHandle[Stream[LazyZSet[T]]]], f: Projection[T, R]):
         super().__init__(
-            stream,
-            lambda x: step_until_fixpoint_and_return(LiftedProject(StreamHandle(lambda: x), f)),
-            None,
+            stream, lambda x: step_until_fixpoint_and_return(LiftedProject(StreamHandle(lambda: x), f)), None
         )

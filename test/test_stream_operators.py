@@ -194,7 +194,7 @@ def test_integrate_stream_of_streams() -> None:
     operator: Integrate[Stream[int]] = Integrate(s_handle)
 
     integrated_s = step_until_fixpoint_and_return(operator)
-    integrated_list = [[0, 0, 0, 0, 0], [0, 0, 1, 2, 3], [0, 2, 4, 6, 8], [0, 6, 9, 12, 15], [0, 12, 16, 20, 24]]
+    integrated_list = [[0], [0, 0, 1, 2, 3], [0, 2, 4, 6, 8], [0, 6, 9, 12, 15], [0, 12, 16, 20, 24]]
     assert from_stream_of_streams_into_list_of_lists(integrated_s) == integrated_list
     assert integrated_s.current_time() == s.current_time()
 

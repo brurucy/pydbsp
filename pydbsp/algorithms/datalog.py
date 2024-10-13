@@ -390,9 +390,7 @@ class LiftedLiftedJorder(Lift1[Stream[Program], Stream[NaiveJoinOrder]]):
         stream: Optional[StreamHandle[Stream[Program]]],
     ):
         super().__init__(
-            stream,
-            lambda sp: step_until_fixpoint_and_return(LiftedJorder(StreamHandle(lambda: sp))),
-            None,
+            stream, lambda sp: step_until_fixpoint_and_return(LiftedJorder(StreamHandle(lambda: sp))), None
         )
 
 

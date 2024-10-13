@@ -15,9 +15,7 @@ class LiftedSelect(Lift1[ZSet[T], ZSet[T]]):
 class LiftedLiftedSelect(Lift1[Stream[ZSet[T]], Stream[ZSet[T]]]):
     def __init__(self, stream: Optional[StreamHandle[Stream[ZSet[T]]]], p: Cmp[T]):
         super().__init__(
-            stream,
-            lambda x: step_until_fixpoint_and_return(LiftedSelect(StreamHandle(lambda: x), p)),
-            None,
+            stream, lambda x: step_until_fixpoint_and_return(LiftedSelect(StreamHandle(lambda: x), p)), None
         )
 
 
@@ -32,7 +30,5 @@ class LiftedProject(Lift1[ZSet[T], ZSet[R]]):
 class LiftedLiftedProject(Lift1[Stream[ZSet[T]], Stream[ZSet[R]]]):
     def __init__(self, stream: Optional[StreamHandle[Stream[ZSet[T]]]], f: Projection[T, R]):
         super().__init__(
-            stream,
-            lambda x: step_until_fixpoint_and_return(LiftedProject(StreamHandle(lambda: x), f)),
-            None,
+            stream, lambda x: step_until_fixpoint_and_return(LiftedProject(StreamHandle(lambda: x), f)), None
         )

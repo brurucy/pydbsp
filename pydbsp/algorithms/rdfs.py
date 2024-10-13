@@ -180,10 +180,10 @@ class IncrementalRDFSMaterialization(BinaryOperator[Tbox, Abox, Abox]):
 
         self.sco.step()
         while True:
-            self.sco_join_sum.step()
-            self.sco_distinct.step()
             self.sco_lift_delay_distinct.step()
             self.sco_join.step()
+            self.sco_join_sum.step()
+            self.sco_distinct.step()
             latest_sco = self.sco_distinct.output().latest()
             id = self.sco_distinct.output().default
             if latest_sco == id:
@@ -191,10 +191,10 @@ class IncrementalRDFSMaterialization(BinaryOperator[Tbox, Abox, Abox]):
 
         self.spo.step()
         while True:
-            self.spo_join_sum.step()
-            self.spo_distinct.step()
             self.spo_lift_delay_distinct.step()
             self.spo_join.step()
+            self.spo_join_sum.step()
+            self.spo_distinct.step()
             latest_spo = self.spo_distinct.output().latest()
             id = self.spo_distinct.output().default
             if latest_spo == id:
@@ -203,10 +203,11 @@ class IncrementalRDFSMaterialization(BinaryOperator[Tbox, Abox, Abox]):
         self.lifted_intro_abox_stream.step()
         self.property_assertions.step()
         while True:
-            self.property_assertions_join_sum.step()
-            self.property_distinct.step()
             self.property_lift_delay_distinct.step()
             self.fresh_property_assertions.step()
+            self.property_assertions_join_sum.step()
+            self.property_distinct.step()
+
             latest_properties = self.property_distinct.output().latest()
             id = self.property_distinct.output().default
             if latest_properties == id:
@@ -222,10 +223,11 @@ class IncrementalRDFSMaterialization(BinaryOperator[Tbox, Abox, Abox]):
         self.class_assertions.step()
         self.class_plus_domain_plus_range_assertions.step()
         while True:
-            self.class_assertions_join_sum.step()
-            self.class_distinct.step()
             self.class_lift_delay_distinct.step()
             self.fresh_class_assertions.step()
+            self.class_assertions_join_sum.step()
+            self.class_distinct.step()
+
             latest_classes = self.class_distinct.output().latest()
             id = self.class_distinct.output().default
             if latest_classes == id:
