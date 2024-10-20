@@ -33,6 +33,7 @@ whose queries can both change during runtime __and__ respond to new data being s
 * [Datalog Interpretation](notebooks/datalog.ipynb)
 * [Not-interpreted Datalog](notebooks/rdfs.ipynb)
 * [Streaming Pandas](notebooks/readme.ipynb)
+* [Streaming Pandas on the GPU](notebooks/readme_gpu.ipynb)
 
 ### Tests
 
