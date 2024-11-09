@@ -7,7 +7,7 @@
 
 ## Introduction - (a subset of) Differential Dataflow for the masses
 This library provides an implementation of the [DBSP](https://arxiv.org/pdf/2203.16684) language for incremental streaming
-computation. It is a tool **primarily** meant for **research**. See it as the [PyTorch](https://github.com/pytorch/pytorch) of streaming.
+computations. It is a tool **primarily** meant for **research**. See it as the [PyTorch](https://github.com/pytorch/pytorch) of streaming.
 
 It has `zero` dependencies, and is written in pure python.
 
