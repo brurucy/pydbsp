@@ -9,6 +9,7 @@ from pydbsp.stream import (
     step_until_fixpoint_and_return,
 )
 from pydbsp.stream.operators.linear import Delay, Integrate, LiftedDelay, LiftedIntegrate
+from pydbsp.stream import LiftedGroupAdd, LiftedGroupNegate
 from pydbsp.zset import ZSet, ZSetAddition
 from pydbsp.zset.functions.bilinear import JoinCmp, PostJoinProjection, join
 

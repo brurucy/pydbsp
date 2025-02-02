@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "pydbsp"
-version = "0.5.0"
+version = "0.6.0"
 description = "A pure-python implementation of the database signal processing theory stream processing paradigm"
 authors = ["brurucy <brurucy@gmail.com>"]
 license = "MIT"

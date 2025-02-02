@@ -39,6 +39,7 @@ whose queries can both change during runtime __and__ respond to new data being s
 
 * [Graph Reachability](notebooks/benchmark.ipynb)
 * [Datalog Interpretation](notebooks/datalog.ipynb)
+* [Stratified Datalog Interpretation] (notebooks/stratified_negation.ipynb)
 * [Not-interpreted Datalog](notebooks/rdfs.ipynb)
 * [Streaming Pandas](notebooks/readme.ipynb)
 * [Streaming Pandas on the GPU](notebooks/readme_gpu.ipynb)

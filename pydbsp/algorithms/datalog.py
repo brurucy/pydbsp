@@ -5,6 +5,7 @@ from pydbsp.stream import (
     BinaryOperator,
     Lift1,
     LiftedGroupAdd,
+    LiftedGroupNegate,
     Stream,
     StreamHandle,
     step_until_fixpoint_and_return,
@@ -16,6 +17,7 @@ from pydbsp.stream.operators.linear import (
 )
 from pydbsp.zset import ZSet, ZSetAddition
 from pydbsp.zset.operators.bilinear import DeltaLiftedDeltaLiftedJoin
+from pydbsp.zset.operators.linear import LiftedLiftedProject, LiftedLiftedSelect
 from pydbsp.zset.operators.unary import DeltaLiftedDeltaLiftedDistinct
 
 Constant = Any
@@ -217,7 +219,6 @@ def rewrite_product_projection(
 edb_identity: EDB = ZSetAddition().identity()
 provenance_indexed_rewrite_identity: ProvenanceChain = ZSetAddition().identity()
 
-
 class IncrementalDatalog(BinaryOperator[EDB, Program, EDB]):
     # Program transformations
     lifted_sig: LiftedSig
@@ -319,6 +320,159 @@ class IncrementalDatalog(BinaryOperator[EDB, Program, EDB]):
         self.lifted_intro_lifted_dir.step()
         self.gatekeep.step()
         self.product.step()
+        self.ground.step()
+        self.fresh_facts_plus_edb.step()
+        self.distinct_facts.step()
+        self.rewrite_product_plus_rewrites.step()
+        self.distinct_rewrites.step()
+        self.delay_distinct_facts.step()
+        self.delay_distinct_rewrites.step()
+        self.lifted_elim_fresh_facts.step()
+
+        new_facts_stream = self.distinct_facts.output().latest()
+        new_rewrites_stream = self.distinct_rewrites.output().latest()
+        return new_facts_stream.is_identity() and new_rewrites_stream.is_identity()
+
+class IncrementalDatalogWithNegation(BinaryOperator[EDB, Program, EDB]):
+    # Program transformations
+    lifted_sig: LiftedSig
+    lifted_intro_lifted_sig: LiftedStreamIntroduction[GroundingSignals]
+    lifted_dir: LiftedDir
+    lifted_intro_lifted_dir: LiftedStreamIntroduction[ProvenanceChain]
+
+    # EDB transformations
+    lifted_intro_edb: LiftedStreamIntroduction[EDB]
+
+    # Rewrite transformations
+    rewrites: StreamHandle[ZSet[ProvenanceIndexedRewrite]]
+    lifted_rewrites: LiftedStreamIntroduction[ZSet[ProvenanceIndexedRewrite]]
+
+    # Joins
+    gatekeep: DeltaLiftedDeltaLiftedJoin[ProvenanceIndexedRewrite, Direction, AtomWithSourceRewriteAndProvenance]
+    positive_atoms: LiftedLiftedSelect[AtomWithSourceRewriteAndProvenance]
+    product: DeltaLiftedDeltaLiftedJoin[AtomWithSourceRewriteAndProvenance, Fact, ProvenanceIndexedRewrite]
+
+    negative_atoms: LiftedLiftedSelect[AtomWithSourceRewriteAndProvenance]
+    proj: LiftedLiftedProject[AtomWithSourceRewriteAndProvenance, ProvenanceIndexedRewrite]
+
+    anti_product: DeltaLiftedDeltaLiftedJoin[AtomWithSourceRewriteAndProvenance, Fact, ProvenanceIndexedRewrite]
+    negated_product: LiftedGroupNegate[Stream[ZSet[ProvenanceIndexedRewrite]]]
+
+    final_product_0: LiftedGroupAdd[Stream[ZSet[ProvenanceIndexedRewrite]]]
+    final_product: LiftedGroupAdd[Stream[ZSet[ProvenanceIndexedRewrite]]]
+
+    ground: DeltaLiftedDeltaLiftedJoin[ProvenanceIndexedRewrite, Signal, Fact]
+
+    # Distincts
+    distinct_rewrites: DeltaLiftedDeltaLiftedDistinct[ProvenanceIndexedRewrite]
+    distinct_facts: DeltaLiftedDeltaLiftedDistinct[Fact]
+
+    # Delays
+    delay_distinct_facts: Delay[Stream[ZSet[Fact]]]
+    delay_distinct_rewrites: Delay[Stream[ZSet[ProvenanceIndexedRewrite]]]
+
+    # Pluses
+    fresh_facts_plus_edb: LiftedGroupAdd[Stream[EDB]]
+    rewrite_product_plus_rewrites: LiftedGroupAdd[Stream[ZSet[ProvenanceIndexedRewrite]]]
+
+    # Stream elimination
+    lifted_elim_fresh_facts: LiftedStreamElimination[EDB]
+
+    def set_input_a(self, stream_handle_a: StreamHandle[EDB]) -> None:
+        self.input_stream_handle_a = stream_handle_a
+        self.lifted_intro_edb = LiftedStreamIntroduction(self.input_stream_handle_a)
+
+        provenance_indexed_rewrite_group: ZSetAddition[ProvenanceIndexedRewrite] = ZSetAddition()
+        rewrite_stream: Stream[ZSet[ProvenanceIndexedRewrite]] = Stream(provenance_indexed_rewrite_group)
+        self.rewrites = StreamHandle(lambda: rewrite_stream)
+        empty_rewrite_set = rewrite_stream.group().identity()
+        empty_rewrite_set.inner[(0, RewriteMonoid().identity())] = 1
+
+        self.rewrites.get().send(empty_rewrite_set)
+        self.lifted_rewrites = LiftedStreamIntroduction(self.rewrites)
+
+    def set_input_b(self, stream_handle_b: StreamHandle[Program]) -> None:
+        self.input_stream_handle_b = stream_handle_b
+
+        self.lifted_sig = LiftedSig(self.input_stream_handle_b)
+        self.lifted_intro_lifted_sig = LiftedStreamIntroduction(self.lifted_sig.output_handle())
+
+        self.lifted_dir = LiftedDir(self.input_stream_handle_b)
+        self.lifted_intro_lifted_dir = LiftedStreamIntroduction(self.lifted_dir.output_handle())
+
+        self.gatekeep = DeltaLiftedDeltaLiftedJoin(
+            None, None, lambda left, right: left[0] == right[0], lambda left, right: (right[1], right[2], left[1])
+        )
+
+        self.positive_atoms = LiftedLiftedSelect(self.gatekeep.output_handle(), lambda gkeep: gkeep[1] is None or ("!" not in gkeep[1][0]))
+
+        self.product = DeltaLiftedDeltaLiftedJoin(
+            self.positive_atoms.output_handle(),
+            None,
+            lambda left, right: left[1] is None
+            or (left[1][0] == right[0] and unify(left[2].apply(left[1]), right) is not None),
+            rewrite_product_projection,
+        )
+
+        self.negative_atoms = LiftedLiftedSelect(self.gatekeep.output_handle(), lambda gkeep: not (gkeep[1] is None or ("!" not in gkeep[1][0])))
+
+        # Bypass rewrites around product so that we can apply the anti join kills by retracting anti join matches in product from the bypassed rewrites
+        self.proj = LiftedLiftedProject(self.negative_atoms.output_handle(), lambda gkeep: (gkeep[0], gkeep[2]))
+
+        self.anti_product = DeltaLiftedDeltaLiftedJoin(
+            self.negative_atoms.output_handle(),
+            None,
+            lambda left, right: left[1] is None
+            or (left[1][0].strip("!") == right[0] and unify(left[2].apply(left[1]), right) is not None),
+            lambda left, _: (left[0], left[2]),
+        )
+
+        self.negated_product = LiftedGroupNegate(self.anti_product.output_handle())
+
+        self.final_product_0 = LiftedGroupAdd(self.negated_product.output_handle(), self.proj.output_handle())
+        self.final_product = LiftedGroupAdd(self.final_product_0.output_handle(), self.product.output_handle())
+
+        self.ground = DeltaLiftedDeltaLiftedJoin(
+            self.final_product.output_handle(),
+            self.lifted_intro_lifted_sig.output_handle(),
+            lambda left, right: left[0] == right[0],
+            lambda left, right: left[1].apply(right[1]),
+        )
+
+        self.fresh_facts_plus_edb = LiftedGroupAdd(self.ground.output_handle(), self.lifted_intro_edb.output_handle())
+        self.distinct_facts = DeltaLiftedDeltaLiftedDistinct(self.fresh_facts_plus_edb.output_handle())
+
+        self.rewrite_product_plus_rewrites = LiftedGroupAdd(
+            self.final_product.output_handle(), self.lifted_rewrites.output_handle()
+        )
+        self.distinct_rewrites = DeltaLiftedDeltaLiftedDistinct(self.rewrite_product_plus_rewrites.output_handle())
+
+        self.delay_distinct_facts = Delay(self.distinct_facts.output_handle())
+        self.delay_distinct_rewrites = Delay(self.distinct_rewrites.output_handle())
+        self.gatekeep.set_input_a(self.delay_distinct_rewrites.output_handle())
+        self.gatekeep.set_input_b(self.lifted_intro_lifted_dir.output_handle())
+        self.product.set_input_b(self.delay_distinct_facts.output_handle())
+        self.anti_product.set_input_b(self.delay_distinct_facts.output_handle())
+
+        self.lifted_elim_fresh_facts = LiftedStreamElimination(self.distinct_facts.output_handle())
+        self.output_stream_handle = self.lifted_elim_fresh_facts.output_handle()
+
+    def step(self) -> bool:
+        self.lifted_intro_edb.step()
+        self.lifted_rewrites.step()
+        self.lifted_sig.step()
+        self.lifted_dir.step()
+        self.lifted_intro_lifted_sig.step()
+        self.lifted_intro_lifted_dir.step()
+        self.gatekeep.step()
+        self.positive_atoms.step()
+        self.product.step()
+        self.negative_atoms.step()
+        self.proj.step()
+        self.anti_product.step()
+        self.negated_product.step()
+        self.final_product_0.step()
+        self.final_product.step()
         self.ground.step()
         self.fresh_facts_plus_edb.step()
         self.distinct_facts.step()
