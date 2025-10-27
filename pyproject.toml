@@ -1,33 +1,33 @@
-[tool.poetry]
+[project]
 name = "pydbsp"
 version = "0.6.0"
 description = "A pure-python implementation of the database signal processing theory stream processing paradigm"
-authors = ["brurucy <brurucy@gmail.com>"]
-license = "MIT"
+authors = [{ name = "brurucy", email = "brurucy@gmail.com" }]
 readme = "README.md"
-packages = [{include = "pydbsp"}]
-include = ["assets/*"]
-
-[tool.poetry.dependencies]
-python = "^3.12"
-
-
-[tool.poetry.group.dev.dependencies]
-ruff = "^0.5.5"
-pytest = "^8.3.2"
-jupyterlab = "^4.2.3"
-jupyterlab-code-formatter = "^2.2.1"
-jupyterlab-vim = "^4.1.3"
-jupyterlab-lsp = "^5.1.0"
-jldracula = "^0.2.0"
-tqdm = "^4.66.5"
-seaborn = "^0.13.2"
-pandas = "^2.2.2"
-ipywidgets = "^8.1.5"
+license = "MIT"
+dependencies = [
+    "ipykernel>=7.0.1",
+]
 
 [tool.ruff]
 line-length = 120
 src = [ "pydbsp" ]
+
+[tool.hatch.build.targets.sdist]
+include = [
+    "pydbsp",
+    "assets/*",
+]
+
+[tool.hatch.build.targets.wheel]
+include = [
+    "pydbsp",
+    "assets/*",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
 
 [tool.ruff.format]
 docstring-code-format = true
@@ -37,7 +37,3 @@ venvPath = "."
 include = [ "pydbsp" ]
 exclude = [ ".venv" ]
 typeCheckingMode = "strict"
-
-[build-system]
-requires = ["poetry-core"]
-build-backend = "poetry.core.masonry.api"
