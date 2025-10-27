@@ -49,6 +49,9 @@ class ZSet[T]:
 
     def __setitem__(self, key: T, value: int) -> None:
         self.inner[key] = value
+    
+    def __hash__(self) -> int:
+        return hash(frozenset(self.inner.items()))
 
 
 class ZSetAddition[T](AbelianGroupOperation[ZSet[T]]):
