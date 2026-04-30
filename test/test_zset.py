@@ -1,8 +1,11 @@
-from pydbsp.algorithms.graph_reachability import Edge, GraphZSet
 from pydbsp.zset import ZSet, ZSetAddition
 from pydbsp.zset.functions.bilinear import join
 from pydbsp.zset.functions.binary import H
 from pydbsp.zset.functions.linear import project, select
+
+
+Edge = tuple[int, int]
+GraphZSet = ZSet[Edge]
 
 
 def create_test_zset_graph(n: int) -> GraphZSet:
@@ -56,21 +59,25 @@ def test_join() -> None:
 
 
 def test_H() -> None:
+    """``H(i, d)`` — Lean's ``distinct_H``. First argument is the
+    integrated (previous) state, second is the delta.
+    """
     n = 4
     group: ZSetAddition[Edge] = ZSetAddition()
     test_graph: GraphZSet = create_test_zset_graph(n)
 
-    id = H(test_graph, test_graph)
+    # Doubling an existing positive element doesn't cross the
+    # threshold — no change to the distinct set.
+    assert H(test_graph, test_graph) == group.identity()
 
-    # No change
-    assert id == group.identity()
-    # New
-    diff_neg = group.neg(create_test_zset_graph(1))
-    diff_neg_times_two = group.add(diff_neg, diff_neg)
+    # Retracting an element that was in the distinct set: the delta
+    # that removes (0, 1) flips the threshold; H emits -1 at (0, 1).
+    diff_neg = group.neg(create_test_zset_graph(1))  # {(0, 1): -1}
+    diff_neg_times_two = group.add(diff_neg, diff_neg)  # {(0, 1): -2}
+    assert H(test_graph, diff_neg_times_two) == diff_neg
 
-    assert diff_neg == H(diff_neg_times_two, test_graph)
-
+    # Adding an element not yet in the integrated state: H emits +1
+    # at the new element.
     diff_pos = GraphZSet({(2, 4): 1})
     diff_pos_times_two = group.add(diff_pos, diff_pos)
-
-    assert diff_pos == H(diff_pos_times_two, test_graph)
+    assert H(test_graph, diff_pos_times_two) == diff_pos

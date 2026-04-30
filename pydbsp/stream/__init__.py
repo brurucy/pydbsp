@@ -1,398 +1,266 @@
-import sys
 from abc import abstractmethod
-from types import NotImplementedType
-from typing import Callable, Iterator, List, Optional, OrderedDict, Protocol, TypeVar, cast
+from typing import Callable, Protocol
+from pydbsp.core import (
+    AbelianGroupOperation,
+    Antichain,
+    BoundedBelowLattice,
+    DBSPTime,
+)
 
-from pydbsp.core import AbelianGroupOperation
 
-INFINITY = sys.maxsize
+class Stream[V, Time](Protocol):
+    """A DBSP stream: a function ``Time → V`` presented through a
+    progress frontier and on-demand reads.
 
+    ``Time`` is an element of some lattice. In practice this is
+    ``DBSPTime(N)`` — the product lattice ℕᴺ — so every ``Time`` value
+    is a ``tuple[int, ...]``, including the 1D case. Each of the
+    lattice's ``N`` axes is a ``NaturalChain`` along which operators
+    like ``Delay`` / ``Integrate`` / ``Differentiate`` can step.
 
-class Stream[T]:
+    Progress is tracked as an ``Antichain[Time]``. The down-set of the
+    frontier is the settled region — the timestamps at which ``at(t)``
+    is defined. Stepping = monotone extension of the frontier.
+
+    **Frontier rule vs value rule.** A concrete operator supplies a
+    frontier rule (``settled_frontier``) and a value rule
+    (``_compute``). The base ``at`` stitches them together: it
+    enforces the causality check against the frontier and delegates to
+    ``_compute`` for the actual computation. Subclasses implement
+    ``_compute`` and never override ``at`` — the causality invariant
+    is maintained structurally.
+
+    Invariants every implementation must honor:
+
+    1. **Frontier monotonicity.** Over the lifetime of a stream
+       instance, the settled frontier only grows in the covers
+       relation.
+    2. **Stability of settled values.** For any ``t`` covered by the
+       frontier, repeated ``at(t)`` calls return equal values.
+    3. **Causality well-formedness.** Handled uniformly by ``at`` —
+       reads outside the frontier raise ``IndexError``.
+    4. **Fixed group and time lattice.** Neither ``group`` nor
+       ``time_lattice`` changes over a stream's lifetime.
+
+    Induced: streams form a pointwise abelian group when ``V`` does.
     """
-    Represents a stream of elements from an Abelian group.
+
+    _stream_attrs: tuple[str, ...] = ()
+    """Names of attributes on this stream that hold input streams —
+    used to walk the circuit graph. Operators that take
+    stream inputs override at the class level (e.g. ``Lift2`` sets
+    ``("_left", "_right")``). Leaf operators (sources) leave it empty.
     """
 
-    timestamp: int
-    inner: OrderedDict[int, T]
-    group_op: AbelianGroupOperation[T]
-    identity: bool
-    default: T
-    default_changes: OrderedDict[int, T]
+    @property
+    def group(self) -> AbelianGroupOperation[V]: ...
 
-    def __init__(self, group_op: AbelianGroupOperation[T]) -> None:
-        self.inner = OrderedDict()
-        self.group_op = group_op
-        self.timestamp = -1
-        self.identity = True
-        self.default = group_op.identity()
-        self.default_changes = OrderedDict()
-        self.default_changes[0] = group_op.identity()
-        self.send(group_op.identity())
+    @property
+    def time_lattice(self) -> BoundedBelowLattice[Time]: ...
 
-    def send(self, element: T) -> None:
-        """Adds an element to the stream and increments the timestamp."""
-        if element != self.default:
-            self.inner[self.timestamp + 1] = element
-            self.identity = False
-
-        self.timestamp += 1
-
-    def group(self) -> AbelianGroupOperation[T]:
-        """Returns the Abelian group operation associated with this stream."""
-        return self.group_op
-
-    def current_time(self) -> int:
-        """Returns the timestamp of the most recently arrived element."""
-        return self.timestamp
-
-    def __iter__(self) -> Iterator[T]:
-        for t in range(self.current_time() + 1):
-            yield self[t]
-
-    def __repr__(self) -> str:
-        return self.inner.__repr__()
-
-    def set_default(self, new_default: T):
-        """
-        Warning! changing this can break causality. Stay clear of this function unless you REALLY know what you are
-        doing.
-
-        This function effectively "freezes" the stream to strictly return a not-identity value when a timestamp
-        beyond its frontier is requested.
-
-        This is used in very specific scenarios. See the `LiftedIntegrate` implementation.
-        """
-        self.default = new_default
-        self.default_changes[self.timestamp] = new_default
-
-    def __getitem__(self, timestamp: int) -> T:
-        """Returns the element at the given timestamp."""
-        if timestamp < 0:
-            raise ValueError("Timestamp cannot be negative")
-
-        if timestamp <= self.current_time():
-            default_timestamp = max((t for t in self.default_changes if t < timestamp), default=0)
-            return self.inner.get(timestamp, self.default_changes[default_timestamp])
-
-        elif timestamp > self.current_time():
-            while timestamp > self.current_time():
-                self.send(self.default)
-
-        return self.__getitem__(timestamp)
-
-    def latest(self) -> T:
-        """Returns the most recent element."""
-        return self.__getitem__(self.current_time())
-
-    def is_identity(self) -> bool:
-        return self.identity
-
-    def to_list(self) -> List[T]:
-        return list(iter(self))
-
-    def __eq__(self, other: object) -> bool | NotImplementedType:
-        """
-        Compares this stream with another, considering all timestamps up to the latest.
-        """
-        if not isinstance(other, Stream):
-            return NotImplemented
-
-        if self.is_identity() and other.is_identity():
-            return True
-
-        cast(Stream[T], other)
-
-        self_timestamp = self.current_time()
-        other_timestamp = other.current_time()
-
-        if self_timestamp != other_timestamp:
-            return False
-
-        return self.inner == other.inner  # type: ignore
-
-
-T = TypeVar("T")
-
-StreamReference = Callable[[], Stream[T]]
-
-
-class StreamHandle[T]:
-    """A handle to a stream, allowing lazy access."""
-
-    ref: StreamReference[T]
-
-    def __init__(self, stream_reference: StreamReference[T]) -> None:
-        self.ref = stream_reference
-
-    def get(self) -> Stream[T]:
-        """Returns the referenced stream."""
-        return self.ref()
-
-
-R = TypeVar("R")
-
-
-class Operator(Protocol[T]):
-    @abstractmethod
-    def step(self) -> bool:
-        raise NotImplementedError
+    @property
+    def settled_frontier(self) -> Antichain[Time]: ...
 
     @abstractmethod
-    def output_handle(self) -> StreamHandle[T]:
-        raise NotImplementedError
+    def _compute(self, t: Time) -> V:
+        """Value rule: the stream's value at a frontier-legal ``t``.
+        Invoked only from ``at`` after the causality check passes.
+        """
+        ...
+
+    def at(self, t: Time) -> V:
+        """Read the value at ``t``. Delegates the value rule to
+        ``_compute``; subclasses never override this — override
+        ``_compute`` instead.
+
+        **Causality is the observer's responsibility.** Legality of
+        ``t`` is checked at the observation boundary (e.g. ``History``
+        against its cursor) — not here, on every internal read. The
+        frontier rule composes: if the observer's read is frontier-
+        legal and every operator's frontier rule is honest, every dep
+        read this cascades into is legal by construction. Putting the
+        check here once demanded caching the frontier to stay cheap,
+        which broke the moment an input's frontier could grow. Kept
+        out of the hot path, frontiers remain a live property of the
+        stream and are consulted only when the observer needs them.
+        """
+        return self._compute(t)
+
+    def __add__(self, other: "Stream[V, Time]") -> "Stream[V, Time]":
+        """Pointwise sum. ``a + b`` is ``Lift2(a, b, group.add, group)``.
+
+        Both operands must share the same abelian group; ``self.group``
+        is used. Saves the ``StreamAddition(group, lattice).add(a, b)``
+        incantation.
+        """
+        return Lift2(self, other, self.group.add, self.group)
+
+    def __neg__(self) -> "Stream[V, Time]":
+        """Pointwise negation."""
+        return Lift1(self, self.group.neg, self.group)
+
+    def __sub__(self, other: "Stream[V, Time]") -> "Stream[V, Time]":
+        return self + (-other)
+
+    def is_settled(self, t: Time) -> bool:
+        return self.settled_frontier.covers(t)
 
 
-def step_until_fixpoint[T](operator: Operator[T]) -> None:
-    while not operator.step():
-        pass
+class Lift1[A, B, Time](Stream[B, Time]):
+    """Pointwise unary operator: ``Lift1(s, f, g).at(t) = f(s.at(t))``.
 
+    Frontier rule: **identity** — same as ``s``.
+    Value rule: apply ``f`` to ``s.at(t)``.
+    """
 
-def step_until_fixpoint_and_return[T](operator: Operator[T]) -> Stream[T]:
-    step_until_fixpoint(operator)
-
-    return operator.output_handle().get()
-
-
-class UnaryOperator(Operator[R], Protocol[T, R]):
-    """Base class for stream operators with a single input and output."""
-
-    input_stream_handle: StreamHandle[T]
-    output_stream_handle: StreamHandle[R]
-
-    def __init__(
-        self,
-        stream_handle: Optional[StreamHandle[T]],
-        output_stream_group: Optional[AbelianGroupOperation[R]],
-    ) -> None:
-        if stream_handle is not None:
-            self.set_input(stream_handle, output_stream_group)
-
-    def set_input(
-        self,
-        stream_handle: StreamHandle[T],
-        output_stream_group: Optional[AbelianGroupOperation[R]],
-    ) -> None:
-        """Sets the input stream and initializes the output stream."""
-        self.input_stream_handle = stream_handle
-
-        if output_stream_group is not None:
-            output = Stream(output_stream_group)
-
-            self.output_stream_handle = StreamHandle(lambda: output)
-        else:
-            output = cast(Stream[R], Stream(self.input_a().group()))
-
-            self.output_stream_handle = StreamHandle(lambda: output)
-
-    def output(self) -> Stream[R]:
-        return self.output_stream_handle.get()
-
-    def input_a(self) -> Stream[T]:
-        return self.input_stream_handle.get()
-
-    def output_handle(self) -> StreamHandle[R]:
-        handle = StreamHandle(lambda: self.output())
-
-        return handle
-
-
-S = TypeVar("S")
-
-
-class BinaryOperator(Operator[S], Protocol[T, R, S]):
-    """Base class for stream operators with two inputs and one output."""
-
-    input_stream_handle_a: StreamHandle[T]
-    input_stream_handle_b: StreamHandle[R]
-    output_stream_handle: StreamHandle[S]
+    _stream_attrs = ("_base",)
 
     def __init__(
         self,
-        stream_a: Optional[StreamHandle[T]],
-        stream_b: Optional[StreamHandle[R]],
-        output_stream_group: Optional[AbelianGroupOperation[S]],
+        base: Stream[A, Time],
+        f: Callable[[A], B],
+        out_group: AbelianGroupOperation[B],
     ) -> None:
-        if stream_a is not None:
-            self.set_input_a(stream_a)
+        self._base = base
+        self._f = f
+        self._out_group = out_group
 
-        if stream_b is not None:
-            self.set_input_b(stream_b)
+    @property
+    def group(self) -> AbelianGroupOperation[B]:
+        return self._out_group
 
-        if output_stream_group is not None:
-            output = Stream(output_stream_group)
+    @property
+    def time_lattice(self) -> BoundedBelowLattice[Time]:
+        return self._base.time_lattice
 
-            self.set_output_stream(StreamHandle(lambda: output))
+    @property
+    def settled_frontier(self) -> Antichain[Time]:
+        return self._base.settled_frontier
 
-    def set_input_a(self, stream_handle_a: StreamHandle[T]) -> None:
-        """Sets the first input stream and initializes the output stream."""
-        self.input_stream_handle_a = stream_handle_a
-        output = cast(Stream[S], Stream(self.input_a().group()))
+    def _compute(self, t: Time) -> B:
+        return self._f(self._base.at(t))
 
-        self.set_output_stream(StreamHandle(lambda: output))
+    def deps(self, t):
+        return [(self._base, t)]
 
-    def set_input_b(self, stream_handle_b: StreamHandle[R]) -> None:
-        """Sets the second input stream."""
-        self.input_stream_handle_b = stream_handle_b
-
-    def set_output_stream(self, output_stream_handle: StreamHandle[S]) -> None:
-        """Sets the output stream handle."""
-        self.output_stream_handle = output_stream_handle
-
-    def output(self) -> Stream[S]:
-        return self.output_stream_handle.get()
-
-    def input_a(self) -> Stream[T]:
-        return self.input_stream_handle_a.get()
-
-    def input_b(self) -> Stream[R]:
-        return self.input_stream_handle_b.get()
-
-    def output_handle(self) -> StreamHandle[S]:
-        handle = StreamHandle(lambda: self.output())
-
-        return handle
+    def compute_from(self, t, slots):
+        return self._f(slots[(id(self._base), t)])
 
 
-F1 = Callable[[T], R]
+class Lift2[A, B, C, Time](Stream[C, Time]):
+    """Pointwise binary operator:
+    ``Lift2(a, b, f, g).at(t) = f(a.at(t), b.at(t))``.
 
+    Frontier rule: **meet** — ``a.frontier ⊓ b.frontier``.
+    Value rule: apply ``f`` to both inputs at the same ``t``.
+    """
 
-class Lift1(UnaryOperator[T, R]):
-    """Lifts a unary function to operate on a stream"""
-
-    f1: F1[T, R]
-    frontier: int
+    _stream_attrs = ("_left", "_right")
 
     def __init__(
         self,
-        stream: Optional[StreamHandle[T]],
-        f1: F1[T, R],
-        output_stream_group: Optional[AbelianGroupOperation[R]],
-    ):
-        self.f1 = f1
-        self.frontier = 0
-        super().__init__(stream, output_stream_group)
-
-    def step(self) -> bool:
-        """Applies the lifted function to the next element in the input stream."""
-        output_timestamp = self.output().current_time()
-        input_timestamp = self.input_a().current_time()
-        join = max(input_timestamp, output_timestamp, self.frontier)
-        meet = min(input_timestamp, output_timestamp, self.frontier)
-
-        if join == meet:
-            return True
-
-        next_frontier = self.frontier + 1
-        self.output().send(self.f1(self.input_a()[next_frontier]))
-        self.frontier = next_frontier
-
-        return False
-
-
-F2 = Callable[[T, R], S]
-
-
-class Lift2(BinaryOperator[T, R, S]):
-    """Lifts a binary function to operate on two streams"""
-
-    f2: F2[T, R, S]
-    frontier_a: int
-    frontier_b: int
-
-    def __init__(
-        self,
-        stream_a: Optional[StreamHandle[T]],
-        stream_b: Optional[StreamHandle[R]],
-        f2: F2[T, R, S],
-        output_stream_group: Optional[AbelianGroupOperation[S]],
+        left: Stream[A, Time],
+        right: Stream[B, Time],
+        f: Callable[[A, B], C],
+        out_group: AbelianGroupOperation[C],
     ) -> None:
-        self.f2 = f2
-        self.frontier_a = 0
-        self.frontier_b = 0
+        self._left = left
+        self._right = right
+        self._f = f
+        self._out_group = out_group
 
-        super().__init__(stream_a, stream_b, output_stream_group)
+    @property
+    def group(self) -> AbelianGroupOperation[C]:
+        return self._out_group
 
-    def step(self) -> bool:
-        """Applies the lifted function to the most recently arrived elements in both input streams."""
-        a_timestamp = self.input_a().current_time()
-        b_timestamp = self.input_b().current_time()
-        output_timestamp = self.output().current_time()
+    @property
+    def time_lattice(self) -> BoundedBelowLattice[Time]:
+        return self._left.time_lattice
 
-        join = max(a_timestamp, b_timestamp, output_timestamp, self.frontier_a, self.frontier_b)
-        meet = min(a_timestamp, b_timestamp, output_timestamp, self.frontier_a, self.frontier_b)
-        if join == meet:
-            return True
-
-        next_frontier_a = self.frontier_a + 1
-        next_frontier_b = self.frontier_b + 1
-        a = self.input_a()[next_frontier_a]
-        b = self.input_b()[next_frontier_b]
-
-        application = self.f2(a, b)
-        self.output().send(application)
-
-        self.frontier_a = next_frontier_a
-        self.frontier_b = next_frontier_b
-
-        return False
-
-
-class LiftedGroupAdd(Lift2[T, T, T]):
-    def __init__(self, stream_a: StreamHandle[T], stream_b: Optional[StreamHandle[T]]):
-        super().__init__(
-            stream_a,
-            stream_b,
-            lambda x, y: stream_a.get().group().add(x, y),
-            None,
-        )
-
-
-class LiftedGroupNegate(Lift1[T, T]):
-    def __init__(self, stream: StreamHandle[T]):
-        super().__init__(stream, lambda x: stream.get().group().neg(x), None)
-
-
-class StreamAddition(AbelianGroupOperation[Stream[T]]):
-    """Defines addition for streams by lifting their underlying group's addition."""
-
-    group: AbelianGroupOperation[T]
-
-    def __init__(self, group: AbelianGroupOperation[T]) -> None:
-        self.group = group
-
-    def add(self, a: Stream[T], b: Stream[T]) -> Stream[T]:
-        """Adds two streams element-wise."""
-        handle_a = StreamHandle(lambda: a)
-        handle_b = StreamHandle(lambda: b)
-
-        lifted_group_add = LiftedGroupAdd(handle_a, handle_b)
-        out = step_until_fixpoint_and_return(lifted_group_add)
-        a_group_identity = a.group().identity()
-        if a.is_identity() and a_group_identity == a.default:
-            out.default = b.default
-
-        b_group_identity = b.group().identity()
-        if b.is_identity() and b_group_identity == b.default:
-            out.default = a.default
-
+    @property
+    def settled_frontier(self) -> Antichain[Time]:
+        l = self._left.settled_frontier
+        r = self._right.settled_frontier
+        cached = getattr(self, "_fr_cache", None)
+        if cached is not None and cached[0] is l and cached[1] is r:
+            return cached[2]
+        out = l.meet(r)
+        self._fr_cache = (l, r, out)
         return out
 
-    def inner_group(self) -> AbelianGroupOperation[T]:
-        """Returns the underlying group operation."""
-        return self.group
+    def _compute(self, t: Time) -> C:
+        return self._f(self._left.at(t), self._right.at(t))
 
-    def neg(self, a: Stream[T]) -> Stream[T]:
-        """Negates a stream element-wise."""
-        handle_a = StreamHandle(lambda: a)
-        lifted_group_neg = LiftedGroupNegate(handle_a)
+    def deps(self, t):
+        return [(self._left, t), (self._right, t)]
 
-        return step_until_fixpoint_and_return(lifted_group_neg)
+    def compute_from(self, t, slots):
+        return self._f(slots[(id(self._left), t)], slots[(id(self._right), t)])
 
-    def identity(self) -> Stream[T]:
+
+class Input[V, T: tuple[int, ...]](Stream[V, T]):
+    """Externally-driven stream — values pushed in via ``push(t, v)``.
+
+    A leaf in the operator graph: no ``_stream_attrs``. Memoize treats
+    it as a source; downstream ``Evaluator``s record it and
+    keys its frontier cache on the identity of this stream's
+    ``settled_frontier`` antichain.
+
+    **Frontier grows monotonically.** Each ``push(t, v)`` installs a
+    fresh ``Antichain`` object that extends the previous one to cover
+    ``t``. The new object identity is what signals progress to
+    downstream caches — they self-invalidate on next read.
+
+    **Values are read-only at settled timestamps** (stability
+    invariant). Reads at unsettled timestamps return
+    ``group.identity()``; the observation boundary (``History``) is
+    what gates whether a caller is *allowed* to look at a given ``t``.
+    """
+
+    _stream_attrs: tuple[str, ...] = ()
+
+    def __init__(
+        self,
+        group: AbelianGroupOperation[V],
+        lattice: DBSPTime[T],
+    ) -> None:
+        self._group = group
+        self._lattice = lattice
+        self._values: dict[T, V] = {}
+        self._frontier: Antichain[T] = Antichain(lattice)
+
+    @property
+    def group(self) -> AbelianGroupOperation[V]:
+        return self._group
+
+    @property
+    def time_lattice(self) -> BoundedBelowLattice[T]:
+        return self._lattice
+
+    @property
+    def settled_frontier(self) -> Antichain[T]:
+        return self._frontier
+
+    def push(self, t: T, value: V) -> None:
+        """Publishes ``value`` at timestamp ``t``. ``t`` must not already
+        be covered by the frontier (frontiers grow monotonically).
         """
-        Returns an identity stream for the addition operation.
-        """
-        identity_stream = Stream(self.group)
+        if self._frontier.covers(t):
+            raise ValueError(f"{t} already settled — cannot re-push")
+        self._values[t] = value
+        fresh: Antichain[T] = Antichain(self._lattice)
+        for e in self._frontier.elements:
+            fresh.insert(e)
+        fresh.insert(t)
+        self._frontier = fresh
 
-        return identity_stream
+    def _compute(self, t: T) -> V:
+        return self._values.get(t, self._group.identity())
+
+    def deps(self, t):
+        return ()
+
+    def compute_from(self, t, slots):
+        return self._values.get(t, self._group.identity())
+
+

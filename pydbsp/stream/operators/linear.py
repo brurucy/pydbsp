@@ -1,161 +1,249 @@
-from typing import Optional, TypeVar
+from typing import cast
 
-from pydbsp.stream import (
-    Lift1,
-    LiftedGroupAdd,
-    LiftedGroupNegate,
-    Stream,
-    StreamAddition,
-    StreamHandle,
-    UnaryOperator,
-    step_until_fixpoint,
-    step_until_fixpoint_and_return,
+from pydbsp.core import (
+    AbelianGroupOperation,
+    Antichain,
+    BoundedBelowLattice,
+    DBSPTime,
 )
-from pydbsp.stream.functions.linear import stream_elimination, stream_introduction
-
-T = TypeVar("T")
-
-
-class Delay(UnaryOperator[T, T]):
-    """
-    Delays the input stream by one timestamp.
-    """
-
-    def __init__(self, stream: Optional[StreamHandle[T]]) -> None:
-        super().__init__(stream, None)
-
-    def step(self) -> bool:
-        """
-        Outputs the previous value from the input stream.
-        """
-        output_timestamp = self.output().current_time()
-        input_timestamp = self.input_a().current_time()
-
-        if output_timestamp <= input_timestamp:
-            self.output().send(self.input_a()[output_timestamp])
-
-            return False
-
-        return True
+from pydbsp.stream import Lift1, Lift2, Stream
+from pydbsp.stream.functions.linear import StreamIntroduction
 
 
-class Differentiate(UnaryOperator[T, T]):
-    """
-    Computes the difference between consecutive elements in the input stream.
+class Delay[V, T: tuple[int, ...]](Stream[V, T]):
+    """Delay along a chosen axis of a ``DBSPTime`` lattice.
+
+    ``Delay(s, lattice, axis=i).at(t)`` is ``identity`` when
+    ``t[i] == 0``, otherwise ``s.at(t')`` with ``t'[i] = t[i] - 1``
+    and other coordinates unchanged.
+
+    Frontier rule:
+
+    * Base frontier universal → output frontier universal.
+    * Otherwise, **shift + seed**: each ``e`` in ``base.frontier``
+      gets its ``axis``-coordinate incremented; plus
+      ``lattice.bottom()`` to seed identity at the base.
+
+    Value rule: identity at the axis-bottom, base at axis-predecessor
+    elsewhere.
     """
 
-    delayed_stream: Delay[T]
-    delayed_negated_stream: LiftedGroupNegate[T]
-    differentiation_stream: LiftedGroupAdd[T]
+    _stream_attrs = ("_base",)
 
-    def __init__(self, stream: StreamHandle[T]) -> None:
-        self.input_stream_handle = stream
-        self.delayed_stream = Delay(self.input_stream_handle)
-        self.delayed_negated_stream = LiftedGroupNegate(self.delayed_stream.output_handle())
-        self.differentiation_stream = LiftedGroupAdd(
-            self.input_stream_handle, self.delayed_negated_stream.output_handle()
+    def __init__(
+        self,
+        base: Stream[V, T],
+        lattice: DBSPTime[T],
+        axis: int = 0,
+    ) -> None:
+        self._base = base
+        self._lattice = lattice
+        self._axis = axis
+
+    @property
+    def group(self) -> AbelianGroupOperation[V]:
+        return self._base.group
+
+    @property
+    def time_lattice(self) -> BoundedBelowLattice[T]:
+        return self._lattice
+
+    @property
+    def settled_frontier(self) -> Antichain[T]:
+        base_fr = self._base.settled_frontier
+        cached = getattr(self, "_fr_cache", None)
+        if cached is not None and cached[0] is base_fr:
+            return cached[1]
+        if base_fr.is_universal:
+            out = Antichain.universal(self._lattice)
+        else:
+            out = Antichain(self._lattice)
+            out.insert(self._lattice.bottom())
+            axis = self._axis
+            for e in base_fr.elements:
+                shifted = tuple(x + 1 if i == axis else x for i, x in enumerate(e))
+                out.insert(cast(T, shifted))
+        self._fr_cache = (base_fr, out)
+        return out
+
+    def _compute(self, t: T) -> V:
+        axis = self._axis
+        if t[axis] == 0:
+            return self._base.group.identity()
+        t_prev = tuple(x - 1 if i == axis else x for i, x in enumerate(t))
+        return self._base.at(cast(T, t_prev))
+
+    def deps(self, t):
+        axis = self._axis
+        if t[axis] == 0:
+            return ()
+        prev = tuple(x - 1 if i == axis else x for i, x in enumerate(t))
+        return [(self._base, prev)]
+
+    def compute_from(self, t, slots):
+        axis = self._axis
+        if t[axis] == 0:
+            return self._base.group.identity()
+        prev = tuple(x - 1 if i == axis else x for i, x in enumerate(t))
+        return slots[(id(self._base), prev)]
+
+
+class Integrate[V, T: tuple[int, ...]](Stream[V, T]):
+    """Running prefix sum along a chosen axis of a ``DBSPTime``
+    lattice:
+
+        Integrate(s, lattice, axis=i).at(t)
+            = Σ_{k=0..t[i]} s.at(t') where t'[i] = k, others equal t.
+
+    Frontier rule: **identity** — same as ``s``.
+    """
+
+    _stream_attrs = ("_base",)
+
+    def __init__(
+        self,
+        base: Stream[V, T],
+        lattice: DBSPTime[T],
+        axis: int = 0,
+    ) -> None:
+        self._base = base
+        self._lattice = lattice
+        self._axis = axis
+
+    @property
+    def group(self) -> AbelianGroupOperation[V]:
+        return self._base.group
+
+    @property
+    def time_lattice(self) -> BoundedBelowLattice[T]:
+        return self._lattice
+
+    @property
+    def settled_frontier(self) -> Antichain[T]:
+        return self._base.settled_frontier
+
+    def _compute(self, t: T) -> V:
+        axis = self._axis
+        acc = self._base.at(t)
+        k = t[axis]
+        while k > 0:
+            k -= 1
+            t_prev = tuple(x if i != axis else k for i, x in enumerate(t))
+            acc = self._base.group.add(self._base.at(cast(T, t_prev)), acc)
+        return acc
+
+    def deps(self, t):
+        # Self-recurrence: Integrate.at(t) = base.at(t) + Integrate.at(t - e_i).
+        axis = self._axis
+        if t[axis] == 0:
+            return [(self._base, t)]
+        prev = tuple(x - 1 if i == axis else x for i, x in enumerate(t))
+        return [(self._base, t), (self, prev)]
+
+    def compute_from(self, t, slots):
+        axis = self._axis
+        current = slots[(id(self._base), t)]
+        if t[axis] == 0:
+            return current
+        prev = tuple(x - 1 if i == axis else x for i, x in enumerate(t))
+        prior = slots[(id(self), prev)]
+        # Identity short-circuit: if ``base(t)`` is the group identity
+        # (e.g. an empty ZSet), ``Integrate(t) = Integrate(t-e_α)``. Alias
+        # the prior slot's value — no allocation, no ``group.add``. Cells
+        # beyond the base's pushed support cost O(1) in Python terms.
+        inner = getattr(current, "inner", None)
+        if inner is not None and not inner:
+            return prior
+        return self._base.group.add(prior, current)
+
+
+class Differentiate[V, T: tuple[int, ...]](Stream[V, T]):
+    """Pairwise difference along a chosen axis:
+
+        Differentiate(s, lattice, axis=i).at(t)
+            = s.at(t) - s.at(t')    where t'[i] = t[i] - 1
+
+    At ``t[i] == 0``, returns ``s.at(t)`` directly.
+
+    Frontier rule: **identity** — same as ``s``.
+    """
+
+    _stream_attrs = ("_base",)
+
+    def __init__(
+        self,
+        base: Stream[V, T],
+        lattice: DBSPTime[T],
+        axis: int = 0,
+    ) -> None:
+        self._base = base
+        self._lattice = lattice
+        self._axis = axis
+
+    @property
+    def group(self) -> AbelianGroupOperation[V]:
+        return self._base.group
+
+    @property
+    def time_lattice(self) -> BoundedBelowLattice[T]:
+        return self._lattice
+
+    @property
+    def settled_frontier(self) -> Antichain[T]:
+        return self._base.settled_frontier
+
+    def _compute(self, t: T) -> V:
+        axis = self._axis
+        current = self._base.at(t)
+        if t[axis] == 0:
+            return current
+        t_prev = tuple(x if i != axis else x - 1 for i, x in enumerate(t))
+        prev = self._base.at(cast(T, t_prev))
+        return self._base.group.add(current, self._base.group.neg(prev))
+
+    def deps(self, t):
+        axis = self._axis
+        if t[axis] == 0:
+            return [(self._base, t)]
+        prev = tuple(x - 1 if i == axis else x for i, x in enumerate(t))
+        return [(self._base, t), (self._base, prev)]
+
+    def compute_from(self, t, slots):
+        axis = self._axis
+        current = slots[(id(self._base), t)]
+        if t[axis] == 0:
+            return current
+        prev = tuple(x - 1 if i == axis else x for i, x in enumerate(t))
+        return self._base.group.add(current, self._base.group.neg(slots[(id(self._base), prev)]))
+
+
+class StreamAddition[V, T: tuple[int, ...]](AbelianGroupOperation[Stream[V, T]]):
+    """Pointwise abelian group on streams over an inner group.
+
+    ``add(s1, s2) = Lift2(s1, s2, inner.add, inner)``;
+    ``neg(s)      = Lift1(s, inner.neg, inner)``;
+    ``identity()  = δ₀(inner.identity(), lattice)`` — total function.
+    """
+
+    def __init__(
+        self,
+        inner_group: AbelianGroupOperation[V],
+        lattice: DBSPTime[T],
+    ) -> None:
+        self._inner_group = inner_group
+        self._lattice = lattice
+
+    def add(self, a: Stream[V, T], b: Stream[V, T]) -> Stream[V, T]:
+        return Lift2(a, b, self._inner_group.add, self._inner_group)
+
+    def neg(self, a: Stream[V, T]) -> Stream[V, T]:
+        return Lift1(a, self._inner_group.neg, self._inner_group)
+
+    def identity(self) -> Stream[V, T]:
+        return StreamIntroduction(
+            self._inner_group.identity(),
+            self._inner_group,
+            self._lattice,
         )
-        self.output_stream_handle = self.differentiation_stream.output_handle()
-
-    def step(self) -> bool:
-        """
-        Outputs the difference between the latest element from the input stream with the one before
-        """
-        self.delayed_stream.step()
-        self.delayed_negated_stream.step()
-        self.differentiation_stream.step()
-
-        return self.output().current_time() == self.input_a().current_time()
 
 
-class Integrate(UnaryOperator[T, T]):
-    """
-    Computes the running sum of the input stream.
-    """
-
-    delayed_stream: Delay[T]
-    integration_stream: LiftedGroupAdd[T]
-
-    def __init__(self, stream: StreamHandle[T]) -> None:
-        self.input_stream_handle = stream
-        self.integration_stream = LiftedGroupAdd(self.input_stream_handle, None)
-        self.delayed_stream = Delay(self.integration_stream.output_handle())
-        self.integration_stream.set_input_b(self.delayed_stream.output_handle())
-
-        self.output_stream_handle = self.integration_stream.output_handle()
-
-    def step(self) -> bool:
-        """
-        Adds the latest element from the input stream to the running sum
-        """
-        self.delayed_stream.step()
-        self.integration_stream.step()
-
-        return self.output().current_time() == self.input_a().current_time()
-
-
-def step_until_fixpoint_set_new_default_then_return[T](
-    operator: Integrate[T] | Delay[T],
-) -> Stream[T]:
-    step_until_fixpoint(operator)
-
-    out = operator.output_handle().get()
-    latest = out.latest()
-    out.set_default(latest)
-
-    return out
-
-
-class LiftedDelay(Lift1[Stream[T], Stream[T]]):
-    """
-    Lifts the Delay operator to work on streams of streams.
-    """
-
-    def __init__(self, stream: StreamHandle[Stream[T]]):
-        super().__init__(
-            stream,
-            lambda s: step_until_fixpoint_set_new_default_then_return(Delay(StreamHandle(lambda: s))),
-            None,
-        )
-
-
-class LiftedIntegrate(Lift1[Stream[T], Stream[T]]):
-    """
-    Lifts the Integrate operator to work on streams of streams.
-    """
-
-    def __init__(self, stream: StreamHandle[Stream[T]]):
-        super().__init__(
-            stream,
-            lambda s: step_until_fixpoint_set_new_default_then_return(Integrate(StreamHandle(lambda: s))),
-            None,
-        )
-
-
-class LiftedDifferentiate(Lift1[Stream[T], Stream[T]]):
-    """
-    Lifts the Differentiate operator to work on streams of streams.
-    """
-
-    def __init__(self, stream: StreamHandle[Stream[T]]):
-        super().__init__(stream, lambda s: step_until_fixpoint_and_return(Differentiate(StreamHandle(lambda: s))), None)
-
-
-class LiftedStreamIntroduction(Lift1[T, Stream[T]]):
-    """
-    Lifts the stream_introduction function to work on streams.
-    """
-
-    def __init__(self, stream: StreamHandle[T]) -> None:
-        group = stream.get().group()
-
-        super().__init__(stream, lambda x: stream_introduction(x, group), StreamAddition(group))
-
-
-class LiftedStreamElimination(Lift1[Stream[T], T]):
-    """
-    Lifts the stream_elimination function to work on streams of streams.
-    """
-
-    def __init__(self, stream: StreamHandle[Stream[T]]) -> None:
-        super().__init__(stream, lambda x: stream_elimination(x), stream.get().group().inner_group())  # type: ignore

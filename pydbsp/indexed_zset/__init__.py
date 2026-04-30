@@ -1,23 +1,31 @@
+"""Indexed Z-set: a Z-set carrying a side-car B-tree index over some
+derived key ``I = indexer(T)``. The abelian group semantics are
+identical to ``ZSet`` — the index is an auxiliary structure that
+accelerates sort-merge joins.
+
+``IndexedZSetAddition`` is parameterised by the ``indexer`` function;
+the indexer is part of the group instance, not the carrier.
+"""
+
 from bisect import bisect_right, insort
-from typing import Callable, Dict, Generator, Iterable, Iterator, List, Set, Tuple, TypeVar
+from collections.abc import Callable, Generator, Iterator
+from typing import TypeVar
 
 from pydbsp.core import AbelianGroupOperation
 from pydbsp.zset import ZSetAddition
 
-T = TypeVar("T")
-
 
 class AppendOnlySpine[T]:
-    """
-    An append-only flat B-Tree. Borrowed from `https://github.com/grantjenks/python-sortedcontainers` and `https://github.com/brurucy/indexset`. Only for internal use.
+    """Flat B-tree for sorted iteration. Ported from v0.6.0 — a
+    leaf-level chunked list keyed by per-chunk max.
     """
 
     _len: int
     _load: int
-    _lists: List[List[T]]
-    _maxes: List[T]
+    _lists: list[list[T]]
+    _maxes: list[T]
 
-    def __init__(self):
+    def __init__(self) -> None:
         self._len = 0
         self._load = 1024
         self._lists = []
@@ -26,94 +34,92 @@ class AppendOnlySpine[T]:
     def __len__(self) -> int:
         return self._len
 
-    def add(self, value: T):
-        _lists = self._lists
-        _maxes = self._maxes
-
-        if _maxes:
-            pos = bisect_right(_maxes, value)  # type: ignore
-
-            if pos == len(_maxes):
+    def add(self, value: T) -> None:
+        if self._maxes:
+            pos = bisect_right(self._maxes, value)  # type: ignore[type-var]
+            if pos == len(self._maxes):
                 pos -= 1
-                _lists[pos].append(value)
-                _maxes[pos] = value
+                self._lists[pos].append(value)
+                self._maxes[pos] = value
             else:
-                insort(_lists[pos], value)  # type: ignore
-
+                insort(self._lists[pos], value)  # type: ignore[type-var]
             self._expand(pos)
         else:
-            _lists.append([value])
-            _maxes.append(value)
-
+            self._lists.append([value])
+            self._maxes.append(value)
         self._len += 1
 
     def __iter__(self) -> Generator[T, None, None]:
         for sublist in self._lists:
             yield from sublist
 
-    def _expand(self, pos: int):
-        _load = self._load
-        _lists = self._lists
-
-        if len(_lists[pos]) > (_load << 1):
-            _maxes = self._maxes
-
-            _lists_pos = _lists[pos]
-            half = _lists_pos[_load:]
-            del _lists_pos[_load:]
-            _maxes[pos] = _lists_pos[-1]
-
-            _lists.insert(pos + 1, half)
-            _maxes.insert(pos + 1, half[-1])
+    def _expand(self, pos: int) -> None:
+        if len(self._lists[pos]) > (self._load << 1):
+            chunk = self._lists[pos]
+            half = chunk[self._load :]
+            del chunk[self._load :]
+            self._maxes[pos] = chunk[-1]
+            self._lists.insert(pos + 1, half)
+            self._maxes.insert(pos + 1, half[-1])
 
 
-def sort_merge_join[T](spine1: AppendOnlySpine[T], spine2: AppendOnlySpine[T]) -> Iterator[T]:
-    iter1: Generator[T] = iter(spine1)
-    iter2: Generator[T] = iter(spine2)
-
+def sort_merge_keys[K](a: AppendOnlySpine[K], b: AppendOnlySpine[K]) -> Iterator[K]:
+    """Yield keys present in both spines (in sorted order). Keys are
+    consumed one at a time — callers handle multiplicity."""
+    it_a: Iterator[K] = iter(a)
+    it_b: Iterator[K] = iter(b)
     try:
-        item1 = next(iter1)
-        item2 = next(iter2)
-
+        x = next(it_a)
+        y = next(it_b)
         while True:
-            if item1 < item2:  # type: ignore
-                item1 = next(iter1)
-            elif item2 < item1:  # type: ignore
-                item2 = next(iter2)
+            if x < y:  # type: ignore[operator]
+                x = next(it_a)
+            elif y < x:  # type: ignore[operator]
+                y = next(it_b)
             else:
-                yield item1
-                item1 = next(iter1)
-                item2 = next(iter2)
-
+                yield x
+                x = next(it_a)
+                y = next(it_b)
     except StopIteration:
         return
 
 
 I = TypeVar("I")
-Indexer = Callable[[T], I]
 
 
 class IndexedZSet[I, T]:
-    """
-    Represents a Z-set, with a B-Tree index. See :func:`~pydbsp.zset.ZSet`.
+    """Z-set with an index on ``indexer(value)``. The ``inner`` dict
+    is the Z-set carrier; ``index_to_value`` and ``index`` are the
+    side-car lookup structures maintained on insertion.
     """
 
-    inner: Dict[T, int]
-    index_to_value: Dict[I, Set[T]]
+    inner: dict[T, int]
+    index_to_value: dict[I, set[T]]
     indexer: Callable[[T], I]
     index: AppendOnlySpine[I]
 
-    def __init__(self, values: Dict[T, int], indexer: Indexer[T, I]) -> None:
-        self.inner = values
+    def __init__(self, values: dict[T, int], indexer: Callable[[T], I]) -> None:
+        self.inner = {}
         self.index_to_value = {}
         self.index = AppendOnlySpine()
         self.indexer = indexer
+        for k, v in values.items():
+            self[k] = v
 
-        for key, value in self.inner.items():
-            self[key] = value
-
-    def items(self) -> Iterable[Tuple[T, int]]:
-        return self.inner.items()
+    @classmethod
+    def _from_parts(
+        cls,
+        inner: dict[T, int],
+        index_to_value: dict[I, set[T]],
+        index: AppendOnlySpine[I],
+        indexer: Callable[[T], I],
+    ) -> "IndexedZSet[I, T]":
+        out: IndexedZSet[I, T] = cls.__new__(cls)
+        out.inner = inner
+        out.index_to_value = index_to_value
+        out.index = index
+        out.indexer = indexer
+        return out
 
     def __repr__(self) -> str:
         return self.inner.__repr__()
@@ -121,60 +127,125 @@ class IndexedZSet[I, T]:
     def __eq__(self, other: object) -> bool:
         if not isinstance(other, IndexedZSet):
             return False
-
-        return self.inner == other.inner  # type: ignore
+        return self.inner == other.inner
 
     def __contains__(self, item: T) -> bool:
-        return self.inner.__contains__(item)
+        return item in self.inner
 
     def __getitem__(self, item: T) -> int:
-        if item not in self:
-            return 0
+        return self.inner.get(item, 0)
 
-        return self.inner[item]
-
-    def __setitem__(self, key: T, value: int) -> None:
-        self.inner[key] = value
-        indexed_value = self.indexer(key)
-        if indexed_value in self.index_to_value:
-            self.index_to_value[indexed_value].add(key)
+    def __setitem__(self, key: T, weight: int) -> None:
+        already = key in self.inner
+        self.inner[key] = weight
+        if already:
+            return
+        idx = self.indexer(key)
+        bucket = self.index_to_value.get(idx)
+        if bucket is None:
+            self.index_to_value[idx] = {key}
+            self.index.add(idx)
         else:
-            self.index_to_value[indexed_value] = {key}
-
-        self.index.add(indexed_value)
+            bucket.add(key)
 
 
 class IndexedZSetAddition[I, T](AbelianGroupOperation[IndexedZSet[I, T]]):
-    inner_group: ZSetAddition[T]
-    indexer: Indexer[T, I]
+    """Abelian group over ``IndexedZSet[I, T]``. Semantics match
+    ``ZSetAddition`` — weight-wise add, zero-weight elimination.
+    The indexer is captured in the group instance; ``add`` returns
+    a fresh indexed zset with a rebuilt index.
+    """
 
-    def __init__(self, inner_group: ZSetAddition[T], indexer: Indexer[T, I]) -> None:
+    inner_group: ZSetAddition[T]
+    indexer: Callable[[T], I]
+
+    def __init__(self, inner_group: ZSetAddition[T], indexer: Callable[[T], I]) -> None:
         self.inner_group = inner_group
         self.indexer = indexer
 
     def add(self, a: IndexedZSet[I, T], b: IndexedZSet[I, T]) -> IndexedZSet[I, T]:
-        c = a.inner | b.inner
-
+        # Light COW:
+        #   ``inner`` always forks (small, changes every add).
+        #   ``index_to_value`` — shallow-copy top-level dict on first
+        #   bucket mutation; per-bucket forks only when touched.
+        #   ``index`` spine — deep-clone only when a new index key
+        #   needs appending (``b``'s keys whose ``indexer(k)`` is
+        #   absent from ``a``'s bucket map).
+        # Relies on the convention that results are read-only after
+        # construction (no post-hoc ``__setitem__``).
+        if not b.inner:
+            return a
+        if not a.inner:
+            return b
+        inner: dict[T, int] = dict(a.inner)
+        i2v: dict[I, set[T]] | None = None
+        spine: AppendOnlySpine[I] | None = None
+        forked_buckets: set[I] = set()
         for k, v in b.inner.items():
-            if k in a.inner:
-                new_weight = a.inner[k] + v
-                if new_weight == 0:
-                    del c[k]
+            prev = inner.get(k, 0)
+            w = prev + v
+            if w == 0:
+                inner.pop(k, None)
+            else:
+                inner[k] = w
+            # Index transitions: prev==0,w!=0 → add; prev!=0,w==0 → remove;
+            # prev!=0,w!=0 → no change (key already indexed).
+            if prev == 0 and w == 0:
+                continue
+            if prev != 0 and w != 0:
+                continue
+            idx = self.indexer(k)
+            if i2v is None:
+                i2v = dict(a.index_to_value)
+            if prev == 0:
+                # New key: add to bucket/spine.
+                bucket = i2v.get(idx)
+                if bucket is None:
+                    if spine is None:
+                        spine = AppendOnlySpine()
+                        spine._len = a.index._len
+                        spine._load = a.index._load
+                        spine._lists = [list(chunk) for chunk in a.index._lists]
+                        spine._maxes = list(a.index._maxes)
+                    spine.add(idx)
+                    i2v[idx] = {k}
+                    forked_buckets.add(idx)
                 else:
-                    c[k] = new_weight
-
-        return IndexedZSet(c, self.indexer)
+                    if idx not in forked_buckets:
+                        bucket = set(bucket)
+                        i2v[idx] = bucket
+                        forked_buckets.add(idx)
+                    bucket.add(k)
+            else:
+                # Cancellation (w==0): remove k from the bucket; if the
+                # bucket becomes empty, drop it from ``i2v``. ``spine`` is
+                # append-only so orphan idx entries can remain — downstream
+                # ``sort_merge_keys`` tolerates them because buckets are
+                # looked up via ``index_to_value`` which we keep clean.
+                bucket = i2v.get(idx)
+                if bucket is not None:
+                    if idx not in forked_buckets:
+                        bucket = set(bucket)
+                        i2v[idx] = bucket
+                        forked_buckets.add(idx)
+                    bucket.discard(k)
+                    if not bucket:
+                        del i2v[idx]
+        return IndexedZSet._from_parts(
+            inner,
+            a.index_to_value if i2v is None else i2v,
+            a.index if spine is None else spine,
+            self.indexer,
+        )
 
     def neg(self, a: IndexedZSet[I, T]) -> IndexedZSet[I, T]:
-        empty_dict: Dict[T, int] = {}
-        b = IndexedZSet(empty_dict, a.indexer)
-        b.index = a.index
-        b.index_to_value = a.index_to_value
-        b.inner = {k: v * -1 for k, v in a.inner.items()}
-
-        return b
+        # Keys are unchanged — share ``index_to_value`` and ``index``.
+        return IndexedZSet._from_parts(
+            {k: -v for k, v in a.inner.items()},
+            a.index_to_value,
+            a.index,
+            self.indexer,
+        )
 
     def identity(self) -> IndexedZSet[I, T]:
-        empty_dict: Dict[T, int] = {}
-
-        return IndexedZSet(empty_dict, self.indexer)
+        return IndexedZSet({}, self.indexer)
