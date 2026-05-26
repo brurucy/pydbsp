@@ -1,14 +1,12 @@
 [project]
 name = "pydbsp"
-version = "1.0.0"
+version = "2.0.0"
 description = "A pure-python implementation of the database signal processing theory stream processing paradigm"
 authors = [{ name = "brurucy", email = "brurucy@gmail.com" }]
 license = "MIT"
 readme = "README.md"
 requires-python = ">=3.12"
-dependencies = [
-    "plotnine>=0.15.3",
-]
+dependencies = []
 
 [build-system]
 requires = ["hatchling"]
@@ -44,6 +42,7 @@ dev = [
     "tqdm>=4.66.5",
     "seaborn>=0.13.2",
     "pandas>=2.2.2",
+    "plotnine>=0.15.3",
     "ipywidgets>=8.1.5",
     "nbformat>=5.10.4",
 ]
