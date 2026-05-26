@@ -31,7 +31,7 @@ class ZSet[T]:
         if not isinstance(other, ZSet):
             return False
 
-        return self.inner == other.inner  # type: ignore
+        return self.inner == other.inner
 
     def __contains__(self, item: T) -> bool:
         """An item is in the Z-set if it has non-zero weight."""

@@ -1,0 +1,321 @@
+"""Parity tests for the 3-D negation-aware Datalog body on positive
+programs.
+
+The 3-D body
+:class:`pydbsp.datalog_stratified.IncrementalDatalogBodyWithNegation`
+is the 3-D analog of
+:class:`pydbsp.indexed_relational_operators.IndexedIncrementalDatalogBody`
+on the ``(outer, stratum, inner)`` lattice. When the stratum axis is
+held at 0 and the outer axis is held at 0 (single batch), the 3-D body
+should produce the **same per-(inner) output** as the 2-D body
+produces per-(outer=0, inner). On programs without negation atoms, the
+3-D negation body's anti-product fires nothing, so it agrees with the
+indexed positive 2-D body.
+
+This is the integration check for the 8-term bilinear + 3-D distinct
+primitives in a real DBSP workload — independent of the formula-level
+ground truth in ``test_3d_bilinear.py``."""
+
+from __future__ import annotations
+
+from typing import NamedTuple
+
+import pytest
+
+from pydbsp import datalog as dlg
+from pydbsp.circuit import Circuit
+from pydbsp.compute import ComputeCtx
+from pydbsp.core import Antichain, dbsp_time
+from pydbsp.datalog_stratified import IncrementalDatalogBodyWithNegation
+from pydbsp.evaluate import Evaluator
+from pydbsp.indexed_relational_operators import IndexedIncrementalDatalogBody
+from pydbsp.operator import Input, LiftStreamIntroduction
+from pydbsp.progress import NodeId, Time
+from pydbsp.storage import DictStorage
+from pydbsp.zset import ZSet, ZSetAddition
+
+
+# ---- Circuit builders ------------------------------------------------------
+
+
+class Wiring2D(NamedTuple):
+    e: Evaluator[Time]
+    edb_1d: NodeId
+    program_1d: NodeId
+    state_facts: NodeId
+    state_rewrites: NodeId
+    seed_1d: NodeId
+    body_out: NodeId
+    fact_group: ZSetAddition[dlg.Fact]
+    rewrite_group: ZSetAddition[dlg.ProvenanceIndexedRewrite]
+
+
+class Wiring3D(NamedTuple):
+    e: Evaluator[Time]
+    edb_1d: NodeId
+    program_1d: NodeId
+    state_facts: NodeId
+    state_rewrites: NodeId
+    seed_1d: NodeId
+    body_out: NodeId
+    fact_group: ZSetAddition[dlg.Fact]
+    rewrite_group: ZSetAddition[dlg.ProvenanceIndexedRewrite]
+
+
+def _build_2d() -> Wiring2D:
+    fact_group = ZSetAddition[dlg.Fact]()
+    rewrite_group = ZSetAddition[dlg.ProvenanceIndexedRewrite]()
+    rule_group = ZSetAddition[dlg.Rule]()
+    e = Evaluator[Time](
+        circuit=Circuit[Time](),
+        storage=DictStorage(),
+        ctx=ComputeCtx(lattice=dbsp_time(2)),
+        group=fact_group,
+    )
+    edb_1d = Input[ZSet[dlg.Fact]](frontier=Antichain(dbsp_time(1))).connect(e.circuit, ())
+    program_1d = Input[ZSet[dlg.Rule]](frontier=Antichain(dbsp_time(1))).connect(e.circuit, ())
+    state_facts_2d = Input[ZSet[dlg.Fact]](frontier=Antichain(dbsp_time(2))).connect(e.circuit, ())
+    state_rewrites_2d = Input[ZSet[dlg.ProvenanceIndexedRewrite]](frontier=Antichain(dbsp_time(2))).connect(
+        e.circuit, ()
+    )
+    seed_1d = Input[ZSet[dlg.ProvenanceIndexedRewrite]](frontier=Antichain(dbsp_time(1))).connect(e.circuit, ())
+    program_2d = LiftStreamIntroduction[ZSet[dlg.Rule]](group=rule_group).connect(e.circuit, (program_1d,))
+    body = IndexedIncrementalDatalogBody(
+        fact_group=fact_group,
+        rule_group=rule_group,
+        rewrite_group=rewrite_group,
+        signal_group=ZSetAddition[dlg.Signal](),
+        ext_dir_group=ZSetAddition[dlg.ExtendedDirection](),
+        jorder_group=ZSetAddition[tuple[str, dlg.ColumnReference]](),
+        gatekeep_group=ZSetAddition[dlg.IndexedGatekeepEntry](),
+        indexed_fact_group=ZSetAddition[dlg.IndexedFact](),
+    ).connect(
+        e.circuit,
+        (edb_1d, program_2d, state_facts_2d, state_rewrites_2d, seed_1d),
+    )
+    return Wiring2D(
+        e=e,
+        edb_1d=edb_1d,
+        program_1d=program_1d,
+        state_facts=state_facts_2d,
+        state_rewrites=state_rewrites_2d,
+        seed_1d=seed_1d,
+        body_out=body,
+        fact_group=fact_group,
+        rewrite_group=rewrite_group,
+    )
+
+
+def _build_3d() -> Wiring3D:
+    fact_group = ZSetAddition[dlg.Fact]()
+    rewrite_group = ZSetAddition[dlg.ProvenanceIndexedRewrite]()
+    rule_group = ZSetAddition[dlg.Rule]()
+    e = Evaluator[Time](
+        circuit=Circuit[Time](),
+        storage=DictStorage(),
+        ctx=ComputeCtx(lattice=dbsp_time(3)),
+        group=fact_group,
+    )
+    edb_1d = Input[ZSet[dlg.Fact]](frontier=Antichain(dbsp_time(1))).connect(e.circuit, ())
+    program_1d = Input[ZSet[dlg.Rule]](frontier=Antichain(dbsp_time(1))).connect(e.circuit, ())
+    state_facts_3d = Input[ZSet[dlg.Fact]](frontier=Antichain(dbsp_time(3))).connect(e.circuit, ())
+    state_rewrites_3d = Input[ZSet[dlg.ProvenanceIndexedRewrite]](frontier=Antichain(dbsp_time(3))).connect(
+        e.circuit, ()
+    )
+    seed_1d = Input[ZSet[dlg.ProvenanceIndexedRewrite]](frontier=Antichain(dbsp_time(1))).connect(e.circuit, ())
+    # Lift the 1-D program to 3-D via two LSIs.
+    program_2d_step = LiftStreamIntroduction[ZSet[dlg.Rule]](group=rule_group).connect(e.circuit, (program_1d,))
+    program_3d = LiftStreamIntroduction[ZSet[dlg.Rule]](group=rule_group).connect(e.circuit, (program_2d_step,))
+    body = IncrementalDatalogBodyWithNegation(
+        fact_group=fact_group,
+        rule_group=rule_group,
+        rewrite_group=rewrite_group,
+        signal_group=ZSetAddition[dlg.Signal](),
+        dir_group=ZSetAddition[dlg.Direction](),
+        gatekeep_group=(ZSetAddition[dlg.AtomWithSourceRewriteAndProvenance]()),
+    ).connect(
+        e.circuit,
+        (edb_1d, program_3d, state_facts_3d, state_rewrites_3d, seed_1d),
+    )
+    return Wiring3D(
+        e=e,
+        edb_1d=edb_1d,
+        program_1d=program_1d,
+        state_facts=state_facts_3d,
+        state_rewrites=state_rewrites_3d,
+        seed_1d=seed_1d,
+        body_out=body,
+        fact_group=fact_group,
+        rewrite_group=rewrite_group,
+    )
+
+
+# ---- Drivers ---------------------------------------------------------------
+
+
+def _drive_2d(
+    w: Wiring2D,
+    edb: ZSet[dlg.Fact],
+    program: ZSet[dlg.Rule],
+    max_k: int = 64,
+) -> tuple[list[ZSet[dlg.Fact]], list[ZSet[dlg.ProvenanceIndexedRewrite]]]:
+    """Push inputs at outer 0, drive the inner fixpoint, returning the
+    list of ``(diff_facts, diff_rewrites)`` per inner tick (truncated
+    at the first all-empty step)."""
+    w.e.push(w.edb_1d, edb)
+    w.e.push(w.program_1d, program)
+    w.e.push(w.seed_1d, ZSet({(0, dlg._rewrite_monoid.identity()): 1}))
+    diffs_facts: list[ZSet[dlg.Fact]] = []
+    diffs_rewrites: list[ZSet[dlg.ProvenanceIndexedRewrite]] = []
+    for k in range(max_k):
+        diff_facts, diff_rewrites = w.e.read(w.body_out, (0, k))
+        if not diff_facts.inner and not diff_rewrites.inner:
+            break
+        diffs_facts.append(diff_facts)
+        diffs_rewrites.append(diff_rewrites)
+        w.e.push(w.state_facts, diff_facts, t=(0, k))
+        w.e.push(w.state_rewrites, diff_rewrites, t=(0, k))
+    return diffs_facts, diffs_rewrites
+
+
+def _drive_3d(
+    w: Wiring3D,
+    edb: ZSet[dlg.Fact],
+    program: ZSet[dlg.Rule],
+    max_k: int = 64,
+) -> tuple[list[ZSet[dlg.Fact]], list[ZSet[dlg.ProvenanceIndexedRewrite]]]:
+    """Same as :func:`_drive_2d` but at ``(0, 0, k)`` on the 3-D body.
+    Outer and stratum are held at 0; only the inner axis advances."""
+    w.e.push(w.edb_1d, edb)
+    w.e.push(w.program_1d, program)
+    w.e.push(w.seed_1d, ZSet({(0, dlg._rewrite_monoid.identity()): 1}))
+    diffs_facts: list[ZSet[dlg.Fact]] = []
+    diffs_rewrites: list[ZSet[dlg.ProvenanceIndexedRewrite]] = []
+    for k in range(max_k):
+        diff_facts, diff_rewrites = w.e.read(w.body_out, (0, 0, k))
+        if not diff_facts.inner and not diff_rewrites.inner:
+            break
+        diffs_facts.append(diff_facts)
+        diffs_rewrites.append(diff_rewrites)
+        w.e.push(w.state_facts, diff_facts, t=(0, 0, k))
+        w.e.push(w.state_rewrites, diff_rewrites, t=(0, 0, k))
+    return diffs_facts, diffs_rewrites
+
+
+# ---- Test programs ---------------------------------------------------------
+
+
+def _tc_program() -> ZSet[dlg.Rule]:
+    return ZSet(
+        {
+            (("reach", ("?X", "?Y")), ("edge", ("?X", "?Y"))): 1,
+            (
+                ("reach", ("?X", "?Z")),
+                ("edge", ("?X", "?Y")),
+                ("reach", ("?Y", "?Z")),
+            ): 1,
+        }
+    )
+
+
+def _triangle_edb() -> ZSet[dlg.Fact]:
+    return ZSet(
+        {
+            ("edge", (0, 1)): 1,
+            ("edge", (1, 2)): 1,
+            ("edge", (2, 0)): 1,
+        }
+    )
+
+
+def _line_edb() -> ZSet[dlg.Fact]:
+    return ZSet(
+        {
+            ("edge", (0, 1)): 1,
+            ("edge", (1, 2)): 1,
+            ("edge", (2, 3)): 1,
+        }
+    )
+
+
+def _two_pred_program() -> ZSet[dlg.Rule]:
+    """Two head predicates feeding off the same EDB. Exercises a
+    program that touches more than one ``sig`` group."""
+    return ZSet(
+        {
+            (("p", ("?X",)), ("base", ("?X",))): 1,
+            (("q", ("?X",)), ("p", ("?X",))): 1,
+        }
+    )
+
+
+PARITY_CASES: list[tuple[str, ZSet[dlg.Rule], ZSet[dlg.Fact]]] = [
+    ("triangle-tc", _tc_program(), _triangle_edb()),
+    ("line-tc", _tc_program(), _line_edb()),
+    (
+        "two-step-chain",
+        _two_pred_program(),
+        ZSet(
+            {
+                ("base", (0,)): 1,
+                ("base", (1,)): 1,
+                ("base", (2,)): 1,
+            }
+        ),
+    ),
+    (
+        "no-derivations",
+        # Rule body refers to a predicate with no facts; should derive
+        # nothing.
+        ZSet(
+            {
+                (("derived", ("?X",)), ("absent", ("?X",))): 1,
+            }
+        ),
+        ZSet({("base", (0,)): 1}),
+    ),
+    (
+        "empty-edb-with-rule",
+        ZSet({(("a", ("?X",)), ("b", ("?X",))): 1}),
+        ZSet({}),
+    ),
+]
+
+
+# ---- Parity test -----------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "label,program,edb",
+    PARITY_CASES,
+    ids=[c[0] for c in PARITY_CASES],
+)
+def test_3d_body_matches_2d_body_inner_axis_per_tick(
+    label: str,
+    program: ZSet[dlg.Rule],
+    edb: ZSet[dlg.Fact],
+) -> None:
+    """The 3-D positive body, driven at ``(0, 0, k)``, should produce
+    the same per-tick ``(diff_facts, diff_rewrites)`` as the 2-D body
+    driven at ``(0, k)``. Same inputs, same convergence depth, same
+    output."""
+    w2 = _build_2d()
+    w3 = _build_3d()
+    facts_2d, rewrites_2d = _drive_2d(w2, edb, program)
+    facts_3d, rewrites_3d = _drive_3d(w3, edb, program)
+
+    assert len(facts_3d) == len(facts_2d), (
+        f"{label}: convergence depth differs: 2-D took {len(facts_2d)} ticks, 3-D took {len(facts_3d)}"
+    )
+    for k, (f2, f3) in enumerate(zip(facts_2d, facts_3d)):
+        assert f2 == f3, f"{label}: diff_facts mismatch at inner tick {k}: 2-D={f2.inner}, 3-D={f3.inner}"
+    for k, (r2, r3) in enumerate(zip(rewrites_2d, rewrites_3d)):
+        assert r2 == r3, f"{label}: diff_rewrites mismatch at inner tick {k}: 2-D weights differ from 3-D"
+
+    cum_2d = w2.fact_group.identity()
+    for f in facts_2d:
+        cum_2d = w2.fact_group.add(cum_2d, f)
+    cum_3d = w3.fact_group.identity()
+    for f in facts_3d:
+        cum_3d = w3.fact_group.add(cum_3d, f)
+    assert cum_2d == cum_3d

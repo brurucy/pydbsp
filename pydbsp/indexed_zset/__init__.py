@@ -1,22 +1,33 @@
 """Indexed Z-set: a Z-set carrying a side-car B-tree index over some
 derived key ``I = indexer(T)``. The abelian group semantics are
-identical to ``ZSet`` — the index is an auxiliary structure that
+identical to ``ZSet``. The index is an auxiliary structure that
 accelerates sort-merge joins.
 
-``IndexedZSetAddition`` is parameterised by the ``indexer`` function;
-the indexer is part of the group instance, not the carrier.
+``IndexedZSetAddition`` is parameterised by the ``indexer`` function. The indexer is part of the group instance, not the carrier.
 """
 
 from bisect import bisect_right, insort
 from collections.abc import Callable, Generator, Iterator
-from typing import TypeVar
+from typing import Any, Protocol, TypeVar
 
 from pydbsp.core import AbelianGroupOperation
-from pydbsp.zset import ZSetAddition
+from pydbsp.zset import ZSet, ZSetAddition
 
 
-class AppendOnlySpine[T]:
-    """Flat B-tree for sorted iteration. Ported from v0.6.0 — a
+class _Comparable(Protocol):
+    """Minimal ordering bound: anything that supports ``<``.
+    ``bisect``, ``insort``, and ``sort_merge_keys`` all require it.
+
+    ``other`` is typed ``Any`` rather than ``object`` because the
+    stdlib types (``str``, ``int``, ``tuple``) declare ``__lt__`` against
+    their own type, not ``object`` — the wider ``Any`` parameter is
+    necessary for them to satisfy this Protocol."""
+
+    def __lt__(self, other: Any, /) -> bool: ...
+
+
+class AppendOnlySpine[T: _Comparable]:
+    """Flat B-tree for sorted iteration. Ported from v0.6.0. A
     leaf-level chunked list keyed by per-chunk max.
     """
 
@@ -36,13 +47,13 @@ class AppendOnlySpine[T]:
 
     def add(self, value: T) -> None:
         if self._maxes:
-            pos = bisect_right(self._maxes, value)  # type: ignore[type-var]
+            pos = bisect_right(self._maxes, value)
             if pos == len(self._maxes):
                 pos -= 1
                 self._lists[pos].append(value)
                 self._maxes[pos] = value
             else:
-                insort(self._lists[pos], value)  # type: ignore[type-var]
+                insort(self._lists[pos], value)
             self._expand(pos)
         else:
             self._lists.append([value])
@@ -63,18 +74,18 @@ class AppendOnlySpine[T]:
             self._maxes.insert(pos + 1, half[-1])
 
 
-def sort_merge_keys[K](a: AppendOnlySpine[K], b: AppendOnlySpine[K]) -> Iterator[K]:
+def sort_merge_keys[K: _Comparable](a: AppendOnlySpine[K], b: AppendOnlySpine[K]) -> Iterator[K]:
     """Yield keys present in both spines (in sorted order). Keys are
-    consumed one at a time — callers handle multiplicity."""
+    consumed one at a time. Callers handle multiplicity."""
     it_a: Iterator[K] = iter(a)
     it_b: Iterator[K] = iter(b)
     try:
         x = next(it_a)
         y = next(it_b)
         while True:
-            if x < y:  # type: ignore[operator]
+            if x < y:
                 x = next(it_a)
-            elif y < x:  # type: ignore[operator]
+            elif y < x:
                 y = next(it_b)
             else:
                 yield x
@@ -87,9 +98,9 @@ def sort_merge_keys[K](a: AppendOnlySpine[K], b: AppendOnlySpine[K]) -> Iterator
 I = TypeVar("I")
 
 
-class IndexedZSet[I, T]:
+class IndexedZSet[I: _Comparable, T]:
     """Z-set with an index on ``indexer(value)``. The ``inner`` dict
-    is the Z-set carrier; ``index_to_value`` and ``index`` are the
+    is the Z-set carrier. ``index_to_value`` and ``index`` are the
     side-car lookup structures maintained on insertion.
     """
 
@@ -149,10 +160,10 @@ class IndexedZSet[I, T]:
             bucket.add(key)
 
 
-class IndexedZSetAddition[I, T](AbelianGroupOperation[IndexedZSet[I, T]]):
+class IndexedZSetAddition[I: _Comparable, T](AbelianGroupOperation[IndexedZSet[I, T]]):
     """Abelian group over ``IndexedZSet[I, T]``. Semantics match
-    ``ZSetAddition`` — weight-wise add, zero-weight elimination.
-    The indexer is captured in the group instance; ``add`` returns
+    ``ZSetAddition``. Weight-wise add, zero-weight elimination.
+    The indexer is captured in the group instance. ``add`` returns
     a fresh indexed zset with a rebuilt index.
     """
 
@@ -249,3 +260,40 @@ class IndexedZSetAddition[I, T](AbelianGroupOperation[IndexedZSet[I, T]]):
 
     def identity(self) -> IndexedZSet[I, T]:
         return IndexedZSet({}, self.indexer)
+
+
+# ---- Sort-merge join (value-layer helper) ---------------------------------
+
+
+def sort_merge_join[I: _Comparable, A, B, C](
+    left: IndexedZSet[I, A],
+    right: IndexedZSet[I, B],
+    proj: Callable[[I, A, B], "C | None"],
+) -> ZSet[C]:
+    """Equi-join via sort-merge over the shared index. ``proj`` may
+    return ``None`` to drop a pair.
+
+    **Invariant:** ``index_to_value[k]`` only contains values whose
+    weight in ``inner`` is nonzero. Producers (IndexedZSetAddition)
+    must maintain this. We no longer guard per-pair.
+    """
+    from itertools import product as cartesian_product
+
+    out: dict[C, int] = {}
+    l_inner = left.inner
+    r_inner = right.inner
+    for key in sort_merge_keys(left.index, right.index):
+        # Spine is append-only; a cancellation in
+        # ``IndexedZSetAddition.add`` removes a key from
+        # ``index_to_value`` but leaves it in ``index``. Use ``.get``
+        # and skip orphan keys.
+        l_bucket = left.index_to_value.get(key)
+        r_bucket = right.index_to_value.get(key)
+        if not l_bucket or not r_bucket:
+            continue
+        for l_val, r_val in cartesian_product(l_bucket, r_bucket):
+            c = proj(key, l_val, r_val)
+            if c is None:
+                continue
+            out[c] = out.get(c, 0) + l_inner[l_val] * r_inner[r_val]
+    return ZSet({k: v for k, v in out.items() if v != 0})

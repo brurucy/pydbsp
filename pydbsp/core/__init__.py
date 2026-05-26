@@ -94,7 +94,7 @@ class BoundedBelowLattice[T](Protocol):
 
     @abstractmethod
     def top(self) -> T:
-        """Supremum — the greatest element. For per-axis chains this
+        """Supremum. The greatest element. For per-axis chains this
         is ω, the completion of ℕ as a bounded chain. For product
         lattices it is componentwise ω.
         """
@@ -167,7 +167,7 @@ class Chain[T](BoundedBelowLattice[T], Protocol):
     A chain refines ``BoundedBelowLattice`` with **totality**: for
     every pair a, b, either ``leq(a, b)`` or ``leq(b, a)``. Under
     totality ``join`` and ``meet`` collapse to ``max`` and ``min``,
-    provided as defaults via ``leq`` — which Chain re-asserts as
+    provided as defaults via ``leq``. Which Chain re-asserts as
     abstract so subclasses supply the native order.
 
     A chain is **discrete**: every element has a unique ``successor``,
@@ -176,7 +176,7 @@ class Chain[T](BoundedBelowLattice[T], Protocol):
 
     In DBSP each chain is an **axis**: a dimension along which operators
     like delay step. 1D timestamps live in a single chain (ℕ). Nested
-    timestamps live in products of chains — one chain per nesting level.
+    timestamps live in products of chains. One chain per nesting level.
     """
 
     @abstractmethod
@@ -218,12 +218,15 @@ class Chain[T](BoundedBelowLattice[T], Protocol):
         return test
 
 
-OMEGA: float = _math.inf
+OMEGA: int = cast(int, _math.inf)
 """Supremum of the per-axis chain — ω, the top element of ℕ∪{ω}.
 
-Represented as ``math.inf`` so Python's built-in comparisons
-(``<=``, ``max``, ``min``) handle it correctly against any int. ω
-is absorbing under ``successor``: ``successor(ω) = ω``.
+Represented at runtime as ``math.inf`` so Python's built-in
+comparisons (``<=``, ``max``, ``min``) handle it correctly against any
+int. Typed as ``int`` via :func:`cast` so the ``NaturalChain(Chain[int])``
+protocol can return it from ``top()`` and pass it to ``successor`` /
+``predecessor``; the ω element is a sentinel, not a real ``int``.
+ω is absorbing under ``successor``: ``successor(ω) = ω``.
 """
 
 
@@ -234,11 +237,11 @@ class NaturalChain(Chain[int]):
 
     Elements are non-negative ints plus the sentinel ``OMEGA``
     (``math.inf``). The chain is a complete lattice of order type
-    ω+1. ``top()`` returns ω; every downset has a finite antichain
+    ω+1. ``top()`` returns ω. Every downset has a finite antichain
     representation.
 
     Per-axis ω lets antichains express partial-universality (e.g.
-    ``{(0, ω)}`` = "outer 0, every inner tick settled") — the
+    ``{(0, ω)}`` = "outer 0, every inner tick settled"). The
     completion needed to make flat product lattices equivalent to
     the nested ``Stream[Stream[…]]`` model's independent-per-cell
     inner antichains.
@@ -248,7 +251,7 @@ class NaturalChain(Chain[int]):
         return 0
 
     def top(self) -> int:
-        return OMEGA  # type: ignore[return-value]
+        return OMEGA
 
     def leq(self, a: int, b: int) -> bool:
         return a <= b
@@ -269,8 +272,8 @@ class DBSPTime[T: tuple[int, ...]](BoundedBelowLattice[T]):
     like ``DBSPTime[tuple[int, int]]`` thread a concrete arity through
     the whole API (antichains, operators, History).
 
-    ``nestedness`` is the single runtime parameter; must be ``>= 1``.
-    ``factors[i]`` exposes the per-axis ``NaturalChain`` — operators
+    ``nestedness`` is the single runtime parameter. Must be ``>= 1``.
+    ``factors[i]`` exposes the per-axis ``NaturalChain``. Operators
     that step along a specific axis (delay, integrate) reach into
     ``factors[i]`` for the chain they need.
 
@@ -279,7 +282,7 @@ class DBSPTime[T: tuple[int, ...]](BoundedBelowLattice[T]):
     * order: componentwise ≤
     * ``join`` / ``meet`` / ``bottom``: componentwise
 
-    Distributive lattice. Not a chain for ``nestedness >= 2`` — two
+    Distributive lattice. Not a chain for ``nestedness >= 2``. Two
     elements can be incomparable (e.g. ``(1, 3)`` and ``(3, 1)``). For
     ``nestedness == 1`` elements are 1-tuples, retaining the uniform
     tuple shape of the API.
@@ -317,9 +320,7 @@ class DBSPTime[T: tuple[int, ...]](BoundedBelowLattice[T]):
             )
         for i, c in enumerate(components):
             if c < 0:
-                raise ValueError(
-                    f"time components must be >= 0; component[{i}] = {c}"
-                )
+                raise ValueError(f"time components must be >= 0; component[{i}] = {c}")
         return cast(T, components)
 
     def leq(self, a: T, b: T) -> bool:
@@ -337,7 +338,7 @@ class DBSPTime[T: tuple[int, ...]](BoundedBelowLattice[T]):
         axis: int,
     ) -> "Antichain[T]":
         """Extend ``frontier`` by one successor on ``axis``. Empty
-        frontier seeds at ``bottom`` — the clock's first tick.
+        frontier seeds at ``bottom``. The clock's first tick.
         Universal frontier is a no-op (already total).
         """
         if frontier.is_universal:
@@ -377,20 +378,20 @@ class Antichain[T]:
 
     In DBSP, an Antichain is a **progress frontier**: the set of maximal
     observed timestamps. The down-set of the antichain (every element
-    ``≤`` some antichain member) is the **settled region** — timestamps
+    ``≤`` some antichain member) is the **settled region**. Timestamps
     whose values are determined.
 
     The set of all antichains over a ``BoundedBelowLattice[T]`` itself
     forms a distributive **bounded** lattice under down-set inclusion:
 
-    * ``⊥`` — the empty antichain. Down-set = ∅.
-    * ``⊤`` — the **universal** antichain (``is_universal = True``).
-      Down-set = the whole lattice; ``covers(x) = True`` for every x.
+    * ``⊥``. The empty antichain. Down-set = ∅.
+    * ``⊤``. The **universal** antichain (``is_universal = True``).
+      Down-set = the whole lattice. ``covers(x) = True`` for every x.
     * ``∨`` = union of down-sets, ``∧`` = intersection, ``⊑`` = down-set
       containment.
 
     Note that the antichain lattice is bounded **above** even when the
-    base lattice (e.g. ``NaturalChain`` = ℕ) isn't — the universal
+    base lattice (e.g. ``NaturalChain`` = ℕ) is not. The universal
     antichain represents "settled everywhere" without needing a top
     element in the base lattice. It is the frontier of identity
     streams: the zero stream of ``StreamAddition`` is total (``0``
@@ -407,12 +408,12 @@ class Antichain[T]:
 
     @classmethod
     def universal(cls, lattice: "BoundedBelowLattice[T]") -> "Antichain[T]":
-        """The top of the antichain lattice — covers every element."""
+        """The top of the antichain lattice. Covers every element."""
         return cls(lattice=lattice, elements=[], is_universal=True)
 
     def insert(self, element: T) -> None:
         """
-        Add element. Noop if element is already covered; otherwise remove
+        Add element. Noop if element is already covered. Otherwise remove
         any existing elements it dominates, then add it. Universal
         antichains absorb every insert.
         """
@@ -429,7 +430,7 @@ class Antichain[T]:
 
     def covers(self, element: T) -> bool:
         """
-        True iff ``element`` is in the down-set — some antichain member
+        True iff ``element`` is in the down-set. Some antichain member
         is ``≥ element``, or the antichain is universal.
         """
         if self.is_universal:
@@ -464,7 +465,7 @@ class Antichain[T]:
         Antichain whose down-set is the intersection of both down-sets.
 
         Computed as the maximal elements of pairwise lattice-meets of
-        ``self`` and ``other`` — justified by ``x ≤ a ∧ x ≤ b`` iff
+        ``self`` and ``other``. Justified by ``x ≤ a ∧ x ≤ b`` iff
         ``x ≤ meet(a, b)``. Universal is the identity of ``meet``.
         """
         if self.is_universal:
@@ -486,7 +487,7 @@ class Antichain[T]:
 class ProductGroup[A, B](AbelianGroupOperation[tuple[A, B]]):
     """Direct product of two abelian groups. Identity, add, and neg
     are componentwise. Used when a fixpoint's state has multiple
-    components (e.g. ``(Facts × Rewrites)`` in Datalog) — a single
+    components (e.g. ``(Facts × Rewrites)`` in Datalog). A single
     stream over the product group plays the role of Lean's
     ``stream (α × β)``.
     """

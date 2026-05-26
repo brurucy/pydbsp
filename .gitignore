@@ -209,4 +209,17 @@ flycheck_*.el
 # network security
 /network-security.data
 
+# Local working notes — not for commit.
+CURRENT_EFFORT.md
 
+# Local tool state and caches.
+.serena/
+tests/.souffle_oracle_cache.json
+
+
+# Benchmark harness.
+bench/
+
+# Local working files.
+CLAUDE.md
+_backup/
