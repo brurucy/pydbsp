@@ -131,23 +131,36 @@ class Evaluator[T: Time]:
     # ---- Convenience: read at the latest frontier tick --------------------
 
     def latest(self, node: NodeId) -> Any:
-        """Return the node's value at the **lattice-maximal element of
-        its settled frontier** . "the freshest known tick". Arity-
-        agnostic: works for 1-D, 2-D, 3-D, … nodes alike.
+        """Return the node's value at the **lattice-maximal element
+        of its settled frontier**, with any ``OMEGA`` coordinates
+        resolved to ``0``. "The freshest known tick". Arity-agnostic.
 
-        Returns ``group.identity()`` when the frontier is empty or
-        when the maximal element has ``OMEGA`` on any coordinate
-        (universally settled. No single concrete tick to read).
+        A coordinate in ``max(frontier)`` is ``OMEGA`` when the axis
+        is trivially settled (upstream ``AxisIntroduction``) and
+        nothing concrete is wired in via ``Meet`` to constrain it.
+        ``0`` is the unique concrete tick guaranteed to be in the
+        down-set of any ω-containing element, and on an
+        ``AxisIntroduction``-lifted axis the output at coord 0
+        equals the unlifted input. Which is exactly what "freshest"
+        means on an axis that does not iterate.
 
-        For nodes whose frontier has multiple incomparable maximal
-        elements, picks the lexicographic-max."""
+        For pipelines that *do* iterate on an axis (Datalog,
+        reachability, fixpoints), the state input's concrete
+        antichain meets the ω-fill out of the node's frontier via
+        :class:`progress.Meet`, so the ω-substitution is a no-op
+        there: ``max(frontier)`` is already concrete on the
+        iteration axis.
+
+        Returns ``group.identity()`` when the frontier is empty (no
+        pushes yet). For nodes whose frontier has multiple
+        incomparable maximal elements, picks the lexicographic
+        max."""
         fr = self.frontiers()[node]
         if not fr.elements:
             return self.group.identity()
         max_elem = max(fr.elements)
-        if any(c == OMEGA for c in max_elem):
-            return self.group.identity()
-        return self.read(node, max_elem)
+        concrete = cast(T, tuple(0 if c == OMEGA else c for c in max_elem))
+        return self.read(node, concrete)
 
     def saturate_inner(
         self,
