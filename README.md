@@ -1,8 +1,6 @@
 # PyDBSP
 <div align="center">
-<a href="/assets/" />
-<img src="/assets/logo.svg" width=400px" />
-</a>
+<img src="https://raw.githubusercontent.com/brurucy/pydbsp/master/assets/logo.svg" width="400px" />
 </div>
 
 ## Introduction - (a subset of) Differential Dataflow for the masses
@@ -122,9 +120,13 @@ Every credit is some account's debit, so `total` nets to zero whenever the inner
 
 ### Theory references
 
-* [Lean declaration index](dbsp-theory-summarised.md) — auto-generated inventory of the 527 top-level `def` / `lemma` / `theorem` entries in the DBSP Lean formalisation, with a one-line signature for each. Useful as a grep target rather than an editorial reference.
-* [Progress algebra](progress-algebra-summarised.md) — the antichain machinery PyDBSP is built on: the time lattice, down-sets, antichains, the per-axis `shift` / `retreat` / `drop_axis` / `insert_axis` primitives, settled frontiers, and the forward / backward propagation walks.
+* [Lean declaration index](https://github.com/brurucy/pydbsp/blob/master/dbsp-theory-summarised.md) — auto-generated inventory of the 527 top-level `def` / `lemma` / `theorem` entries in the DBSP Lean formalisation, with a one-line signature for each. Useful as a grep target rather than an editorial reference.
+* [Progress algebra](https://github.com/brurucy/pydbsp/blob/master/progress-algebra-summarised.md) — the antichain machinery PyDBSP is built on: the time lattice, down-sets, antichains, the per-axis `shift` / `retreat` / `drop_axis` / `insert_axis` primitives, settled frontiers, and the forward / backward propagation walks.
 * [Implementation of the DBSP Paper](https://github.com/brurucy/dbsp-from-scratch) — single-notebook port of almost everything in the paper.
+
+### Papers
+
+* [Incremental Evaluation of Dynamic Datalog Programs as a Higher-order DBSP Program](https://ceur-ws.org/Vol-3801/paper1.pdf) — Rucy Carneiro Alves de Lima, Apinis, Kramer, and Micinski. *5th International Workshop on the Resurgence of Datalog in Academia and Industry (Datalog-2.0 2024)*. The first paper to use PyDBSP.
 
 ### Blogposts (PyDBSP v0.6.0)
 
@@ -132,14 +134,14 @@ Every credit is some account's debit, so `total` nets to zero whenever the inner
 
 ### Notebooks
 
-* [Quickstart](notebooks/quickstart.ipynb) — six primitives tour with two canonical pipelines.
-* [Tutorial](notebooks/readme.ipynb) — six-section tour of the public API: Z-sets, the evaluator, the doubly-incremental DLD join, sort-merge indexing, transitive closure, and Datalog.
-* [SQL operator walkthrough](notebooks/sql.ipynb) — incremental forms of the SQL operators from §4.2 of the DBSP paper.
-* [Datalog](notebooks/datalog.ipynb) — `IndexedIncrementalDatalogBody` on a transitive-closure program, batched vs. drip-fed.
-* [Stratified Datalog with negation](notebooks/stratified_negation.ipynb) — `IncrementalDatalogStratified` on two negation programs (transitive complement; 4-cycle without an overlapping 3-cycle).
-* [RDFS materialization](notebooks/rdfs.ipynb) — LUBM1 through `IndexedIncrementalRDFSBody` cross-checked against a Datalog re-encoding.
-* [Benchmarks](notebooks/benchmark.ipynb) — sort-merge-indexed reachability and Datalog TC across the bundled graphs.
-* [Internals dissection](notebooks/pydbsp_internals_dissection.ipynb) — eight cells tracing the jamie SQL aggregate pipeline at progressively finer resolution.
+* [Quickstart](https://github.com/brurucy/pydbsp/blob/master/notebooks/quickstart.ipynb) — six primitives tour with two canonical pipelines.
+* [Tutorial](https://github.com/brurucy/pydbsp/blob/master/notebooks/readme.ipynb) — six-section tour of the public API: Z-sets, the evaluator, the doubly-incremental DLD join, sort-merge indexing, transitive closure, and Datalog.
+* [SQL operator walkthrough](https://github.com/brurucy/pydbsp/blob/master/notebooks/sql.ipynb) — incremental forms of the SQL operators from §4.2 of the DBSP paper.
+* [Datalog](https://github.com/brurucy/pydbsp/blob/master/notebooks/datalog.ipynb) — `IndexedIncrementalDatalogBody` on a transitive-closure program, batched vs. drip-fed.
+* [Stratified Datalog with negation](https://github.com/brurucy/pydbsp/blob/master/notebooks/stratified_negation.ipynb) — `IncrementalDatalogStratified` on two negation programs (transitive complement; 4-cycle without an overlapping 3-cycle).
+* [RDFS materialization](https://github.com/brurucy/pydbsp/blob/master/notebooks/rdfs.ipynb) — LUBM1 through `IndexedIncrementalRDFSBody` cross-checked against a Datalog re-encoding.
+* [Benchmarks](https://github.com/brurucy/pydbsp/blob/master/notebooks/benchmark.ipynb) — sort-merge-indexed reachability and Datalog TC across the bundled graphs.
+* [Internals dissection](https://github.com/brurucy/pydbsp/blob/master/notebooks/pydbsp_internals_dissection.ipynb) — eight cells tracing the jamie SQL aggregate pipeline at progressively finer resolution.
 
 ### Tests
 
