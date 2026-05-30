@@ -120,12 +120,10 @@ class LiftGroupBy[V, K: _Comparable, C](Operator):
     * Per-tick delta aggregate: ``LiftGroupBy(LiftIndex(diff))``. The
       output Z-set is a per-tick snapshot of each group's aggregate.
     * Cumulative across ticks: ``LiftGroupBy(Integrate(LiftIndex(diff)))``.
-      Every tick re-aggregates the full running cumulative. Correct
-      for any aggregate including non-monoidal ones (min, max,
-      median, ...) but does ``O(|state|)`` per tick. For sparse
-      updates with rare group changes, a Feedback-shaped incremental
-      variant ``IncrementalLiftGroupBy`` (not yet implemented) would
-      drop this to ``O(|changed keys|)``.
+      Re-aggregates the full cumulative every tick (``O(|state|)``),
+      correct for any aggregate. For sparse updates, prefer
+      :class:`DeltaLiftedDeltaLiftedGroupBy`, which emits the cumulative
+      view's delta touching only changed keys.
 
     Output encoding: each group emits ``(K, C) → 1``. This is the
     *value-encoded* form. If you compose with :class:`Integrate`, be
@@ -164,6 +162,75 @@ class LiftGroupBy[V, K: _Comparable, C](Operator):
 class LiftLiftGroupBy[V, K: _Comparable, C](LiftGroupBy[V, K, C]):
     """``↑↑γ``. Pointwise lift to a 2-D stream-of-streams. Same
     implementation as :class:`LiftGroupBy`."""
+
+
+@dataclass(frozen=True)
+class DeltaLiftedDeltaLiftedGroupBy[V, K: _Comparable, C](Operator):
+    """``Dᵒ(G_agg(z⁻¹ⁱ Iⁱ Iᵒ s, Iᵒ s))``. Doubly-incremental
+    ``GROUP BY ... AGGREGATE`` — the incremental counterpart of
+    :class:`LiftGroupBy`, generalizing
+    :class:`pydbsp.relational_operators.DeltaLiftedDeltaLiftedDistinct`
+    (distinct is this operator with ``K`` = element identity, ``aggregate``
+    = positive-weight indicator, ``H`` as its per-element kernel).
+
+    Per cell, the kernel touches only the **keys changed this step**:
+    for each, it re-reads the bucket from the doubly-integrated state,
+    aggregates old vs. old+delta, and emits ``-(k, agg(old)) + (k,
+    agg(new))``. So ``O(Σ_{k changed} |bucket_k|)`` per cell, vs.
+    ``LiftGroupBy(Integrate(...))``'s ``O(|state|)``. Correct for
+    **any** aggregate (min / max / median included): changed buckets
+    are re-scanned in full, so no invertibility is assumed. The output
+    is a proper Z-set diff, so ``Integrate`` of it is the current
+    ``{(k, agg(group_k)) → 1}`` snapshot — without the value-encoding
+    footgun of integrating :class:`LiftGroupBy`'s output.
+
+    ``inputs = (indexed_diff_stream,)`` (``IndexedZSet[K, V]``, usually
+    :class:`LiftIndex` over a 2-D source). ``group`` is the indexed
+    group for Integrate / Delay; ``out_group`` the ``ZSet[(K, C)]``
+    group for the final Differentiate. ``aggregate`` takes the bucket's
+    ``Iterable[tuple[V, int]]`` ``(record, weight)`` pairs, as in
+    :class:`LiftGroupBy`."""
+
+    aggregate: Callable[[Iterable[tuple[V, int]]], C]
+    group: IndexedZSetAddition[K, V]
+    out_group: ZSetAddition[tuple[K, C]]
+
+    def connect(
+        self,
+        circuit: Circuit[Time],
+        inputs: tuple[NodeId, ...],
+    ) -> NodeId:
+        (s,) = inputs
+        agg = self.aggregate
+
+        def kernel(i: IndexedZSet[K, V], d: IndexedZSet[K, V]) -> ZSet[tuple[K, C]]:
+            # i = z⁻¹ⁱ Iⁱ Iᵒ s : previous cumulative grouped state.
+            # d = Iᵒ s         : this inner step's changed keys (small).
+            # Iterate only the changed keys; look up old buckets in i.
+            out: dict[tuple[K, C], int] = {}
+            for k, delta_bucket in d.index_to_value.items():
+                old_bucket = i.index_to_value.get(k)
+                if old_bucket:
+                    old_kv = (k, agg([(t, i.inner[t]) for t in old_bucket]))
+                    out[old_kv] = out.get(old_kv, 0) - 1
+                    new_weights = {t: i.inner[t] for t in old_bucket}
+                else:
+                    new_weights = {}
+                for t in delta_bucket:
+                    new_weights[t] = new_weights.get(t, 0) + d.inner[t]
+                new_items = [(t, w) for t, w in new_weights.items() if w != 0]
+                if new_items:
+                    new_kv = (k, agg(new_items))
+                    out[new_kv] = out.get(new_kv, 0) + 1
+            return ZSet({kv: w for kv, w in out.items() if w != 0})
+
+        integrated = Integrate[IndexedZSet[K, V]](group=self.group).connect(circuit, (s,))
+        int_int = LiftIntegrate[IndexedZSet[K, V]](group=self.group).connect(circuit, (integrated,))
+        del_int_int = LiftDelay[IndexedZSet[K, V]](group=self.group).connect(circuit, (int_int,))
+        g = Lift2[IndexedZSet[K, V], IndexedZSet[K, V], ZSet[tuple[K, C]]](op=kernel).connect(
+            circuit, (del_int_int, integrated)
+        )
+        return Differentiate[ZSet[tuple[K, C]]](group=self.out_group).connect(circuit, (g,))
 
 
 @dataclass(frozen=True)
