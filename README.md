@@ -136,6 +136,7 @@ Every credit is some account's debit, so `total` nets to zero whenever the inner
 
 * [Quickstart](https://github.com/brurucy/pydbsp/blob/master/notebooks/quickstart.ipynb) — six primitives tour with two canonical pipelines.
 * [Tutorial](https://github.com/brurucy/pydbsp/blob/master/notebooks/readme.ipynb) — six-section tour of the public API: Z-sets, the evaluator, the doubly-incremental DLD join, sort-merge indexing, transitive closure, and Datalog.
+* [WordCount](https://github.com/brurucy/pydbsp/blob/master/notebooks/wordcount.ipynb) — the Kafka Streams WordCount topology as a DBSP circuit, with weight-encoded counts, the `(word, count)` changelog via `DeltaLiftedDeltaLiftedGroupBy`, and retraction-aware corrections.
 * [SQL operator walkthrough](https://github.com/brurucy/pydbsp/blob/master/notebooks/sql.ipynb) — incremental forms of the SQL operators from §4.2 of the DBSP paper.
 * [Datalog](https://github.com/brurucy/pydbsp/blob/master/notebooks/datalog.ipynb) — `IndexedIncrementalDatalogBody` on a transitive-closure program, batched vs. drip-fed.
 * [Stratified Datalog with negation](https://github.com/brurucy/pydbsp/blob/master/notebooks/stratified_negation.ipynb) — `IncrementalDatalogStratified` on two negation programs (transitive complement; 4-cycle without an overlapping 3-cycle).
