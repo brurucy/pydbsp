@@ -41,7 +41,7 @@ create materialized view total as
   select sum(balance) from balance;
 ```
 
-The PyDBSP equivalent wires the same dataflow incrementally. Transactions arrive one per outer tick, and after every push we read out the latest total. Records are `(id, from_account, to_account, amount)` tuples:
+The PyDBSP equivalent wires the same dataflow incrementally. The `credits`, `debits`, and `total` views use `DeltaLiftedDeltaLiftedGroupBy`, the incremental `GROUP BY ... AGGREGATE`, so each push re-aggregates only the accounts it touched and emits the changed `(account, total)` pairs directly. Transactions arrive one per outer tick, and after every push we read out the latest total. Records are `(id, from_account, to_account, amount)` tuples:
 
 ```python
 from pydbsp.circuit import Circuit
@@ -49,60 +49,61 @@ from pydbsp.compute import ComputeCtx
 from pydbsp.core import Antichain, dbsp_time
 from pydbsp.evaluate import Evaluator
 from pydbsp.indexed_relational_operators import (
-    IndexedDeltaLiftedDeltaLiftedJoin, LiftGroupBy, LiftIndex,
+    DeltaLiftedDeltaLiftedGroupBy, IndexedDeltaLiftedDeltaLiftedJoin,
+    LiftIndex, LiftLiftIndex,
 )
 from pydbsp.indexed_zset import IndexedZSetAddition
-from pydbsp.operator import (
-    Differentiate, Input, Integrate, Lift1, LiftStreamIntroduction,
-)
+from pydbsp.operator import Input, Integrate, Lift1, LiftStreamIntroduction
 from pydbsp.storage import DictStorage
 from pydbsp.zset import ZSet, ZSetAddition
 
-g_rec = ZSetAddition()
-g_kv = ZSetAddition()
+g_txn = ZSetAddition()   # transactions (id, from, to, amount)
+g_kv = ZSetAddition()    # (account, amount) pairs
+g_by_to = IndexedZSetAddition(g_txn, lambda r: r[2])
+g_by_from = IndexedZSetAddition(g_txn, lambda r: r[1])
 g_idx = IndexedZSetAddition(g_kv, lambda kv: kv[0])
+g_total = ZSetAddition()
 
 e = Evaluator(
     circuit=Circuit(),
     storage=DictStorage(),
     ctx=ComputeCtx(lattice=dbsp_time(2)),
-    group=g_rec,
+    group=g_txn,
 )
 src = Input(frontier=Antichain(dbsp_time(1))).connect(e.circuit, ())
-src_2d = LiftStreamIntroduction(group=g_rec).connect(e.circuit, (src,))
-cum = Integrate(group=g_rec).connect(e.circuit, (src_2d,))
+src_2d = LiftStreamIntroduction(group=g_txn).connect(e.circuit, (src,))
 
+# Incremental GROUP BY: emit (account, total) deltas directly, with no
+# Integrate/Differentiate scaffolding around a full re-aggregation.
 sum_amount = lambda items: sum(r[3] * w for r, w in items)
-credits = LiftGroupBy(aggregate=sum_amount).connect(
-    e.circuit,
-    (LiftIndex(indexer=lambda r: r[2]).connect(e.circuit, (cum,)),),
-)
-debits = LiftGroupBy(aggregate=sum_amount).connect(
-    e.circuit,
-    (LiftIndex(indexer=lambda r: r[1]).connect(e.circuit, (cum,)),),
-)
+credits = DeltaLiftedDeltaLiftedGroupBy(
+    aggregate=sum_amount, group=g_by_to, out_group=g_kv,
+).connect(e.circuit, (LiftLiftIndex(indexer=lambda r: r[2]).connect(e.circuit, (src_2d,)),))
+debits = DeltaLiftedDeltaLiftedGroupBy(
+    aggregate=sum_amount, group=g_by_from, out_group=g_kv,
+).connect(e.circuit, (LiftLiftIndex(indexer=lambda r: r[1]).connect(e.circuit, (src_2d,)),))
 
-dc = Differentiate(group=g_kv).connect(e.circuit, (credits,))
-dd = Differentiate(group=g_kv).connect(e.circuit, (debits,))
 balance_delta = IndexedDeltaLiftedDeltaLiftedJoin(
     proj=lambda k, c, d: (k, c[1] - d[1]),
     group_a=g_idx, group_b=g_idx, out_group=g_kv,
 ).connect(
     e.circuit,
     (
-        LiftIndex(indexer=lambda kv: kv[0]).connect(e.circuit, (dc,)),
-        LiftIndex(indexer=lambda kv: kv[0]).connect(e.circuit, (dd,)),
+        LiftIndex(indexer=lambda kv: kv[0]).connect(e.circuit, (credits,)),
+        LiftIndex(indexer=lambda kv: kv[0]).connect(e.circuit, (debits,)),
     ),
 )
 balance = Integrate(group=g_kv).connect(e.circuit, (balance_delta,))
 
-global_idx = LiftIndex(indexer=lambda _kv: ()).connect(e.circuit, (balance,))
-total_gb = LiftGroupBy(
-    aggregate=lambda items: sum(b[1] * w for b, w in items),
-).connect(e.circuit, (global_idx,))
+sum_balance = lambda items: sum(b[1] * w for b, w in items)
+total_delta = DeltaLiftedDeltaLiftedGroupBy(
+    aggregate=sum_balance,
+    group=IndexedZSetAddition(g_kv, lambda _kv: ()), out_group=g_total,
+).connect(e.circuit, (LiftLiftIndex(indexer=lambda _kv: ()).connect(e.circuit, (balance_delta,)),))
+total_cum = Integrate(group=g_total).connect(e.circuit, (total_delta,))
 total = Lift1(
     f=lambda z: next((c for (_k, c), _w in z.inner.items()), 0),
-).connect(e.circuit, (total_gb,))
+).connect(e.circuit, (total_cum,))
 
 # Stream one transaction per outer tick.
 for tick, txn in enumerate([
@@ -112,7 +113,7 @@ for tick, txn in enumerate([
 ]):
     e.push(src, ZSet({txn: 1}))
     print(f"tick {tick}: total = {e.read(total, (tick, 0))}")
-print("final balance:", e.read(balance, (2, 0)).inner)
+print("final balance:", dict(sorted(e.read(balance, (2, 0)).inner.items())))
 #   → {(1, -30): 1, (2, 20): 1, (3, 10): 1}
 ```
 
